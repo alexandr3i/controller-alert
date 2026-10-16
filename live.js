@@ -45,13 +45,13 @@
         const feed=feeds[key];const p=document.createElement('p');p.className='live-feed-status';
         const status=failed ? 'error' : feed.status==='fresh'&&!fresh(feed.timestamp,now,state.staleSeconds) ? 'stale' : feed.status;
         p.dataset.status=status;
-        p.textContent=`${name}: ${labels[status]}${feed.timestamp ? ' · '+age(feed.timestamp,now) : ''}${feed.error ? ' · '+feed.error : ''}`;
+        p.textContent=`${name}${key==='vehiclePositions'?' · '+(feed.sourceLabel||'TPBI GTFS'):''}: ${labels[status]}${feed.timestamp ? ' · '+age(feed.timestamp,now) : ''}${feed.error ? ' · '+feed.error : ''}`;
         statuses.append(p);
       }
       const all=$('allVehicles').checked, known=new Map(options.getLines().map(l=>[l.id,l]));
       let count=0,recent=0,oldHidden=0;const seen=new Set();
       for(const item of feeds.vehiclePositions.items) {
-        if(!known.has(item.routeId)||(!all&&item.routeId!==line.id))continue;
+        if(!known.has(item.routeId)||(!all&&(item.routeId!==line.id||item.direction!=null&&direction!=null&&item.direction!==direction)))continue;
         const current=isFresh(feeds.vehiclePositions,item);
         // Limit live cache display to 15 minutes; explicit offline snapshots retain historic markers.
         if(!snapshot&&(!item.timestamp||now-item.timestamp>900||item.timestamp-now>120)){oldHidden++;continue;}
@@ -59,7 +59,7 @@
         if(!layer)continue;
         const vehicleLine=known.get(item.routeId);
         const popup=document.createElement('div');
-        popup.textContent=`Linia ${vehicleLine.number||item.routeId}${item.headsign ? ' → '+item.headsign : ''} · ${snapshot?'CAPTURĂ':current?'poziție recentă':'POZIȚIE VECHE'} · ${age(item.timestamp,now)} (${item.timestamp?time(item.timestamp):'fără oră'})`;
+        popup.textContent=`Linia ${vehicleLine.number||item.routeId}${item.headsign ? ' → '+item.headsign : ''} · ${snapshot?'CAPTURĂ':current?'poziție recentă':'POZIȚIE VECHE'} · ${age(item.timestamp,now)} (${item.timestamp?time(item.timestamp):'fără oră'})${item.licensePlate?' · '+item.licensePlate:''} · ${feeds.vehiclePositions.sourceLabel||'TPBI GTFS'}`;
         seen.add(item.id);
         const style={radius:13,color:current?'#103f90':'#685e48',fillColor:current?'#4189ff':'#b4a17c',fillOpacity:0.95,weight:3};
         let marker=markers.get(item.id);
@@ -67,7 +67,7 @@
         else {marker.setLatLng([item.latitude,item.longitude]);marker.setStyle(style);marker.setPopupContent(popup);marker.setTooltipContent(String(vehicleLine.number||item.routeId));}
       }
       for(const [id,marker] of markers)if(!seen.has(id)){layer.removeLayer(marker);markers.delete(id);}
-      $('liveSummary').textContent=`${snapshot?'CAPTURĂ ÎNCĂRCATĂ — fără actualizare automată':failed?'Conexiune cu backend-ul pierdută': 'TPBI · interogare la '+state.pollSeconds+' secunde'} · ${count} vehicule afișate${snapshot?'':', '+recent+' cu poziție recentă'}${oldHidden ? ' · '+oldHidden+' poziții prea vechi sau fără timestamp ascunse' : ''}.`;
+      $('liveSummary').textContent=`${snapshot?'CAPTURĂ ÎNCĂRCATĂ — fără actualizare automată':failed?'Conexiune cu backend-ul pierdută': (feeds.vehiclePositions.sourceLabel||'TPBI GTFS')+' · interogare la '+state.pollSeconds+' secunde'} · ${count} vehicule afișate${snapshot?'':', '+recent+' cu poziție recentă'}${oldHidden ? ' · '+oldHidden+' poziții prea vechi sau fără timestamp ascunse' : ''}${feeds.vehiclePositions.fallbackReason?' · '+feeds.vehiclePositions.fallbackReason:''}.`;
       $('mapStatus').textContent=`Hartă OpenStreetMap · ${all?'toate liniile din catalog':'linia '+(line.number||line.id)} · albastru: recent; ocru: captură/date vechi. Cercurile mici verzi sunt stații.`;
       if(!options.map) $('mapStatus').textContent='Harta nu a putut fi inițializată. Datele realtime sunt disponibile în panourile de mai jos.';
       const updates=feeds.tripUpdates;

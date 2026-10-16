@@ -1,4 +1,4 @@
-# PeLinie — București · v0.4
+# PeLinie — București · v0.5
 
 Aplicație web pentru transportul public din București–Ilfov: hartă, poziții de vehicule, estimări, alerte de transport și raportări comunitare privind prezența unui control. Nu identifică și nu urmărește individual angajați. Experiment independent, neafiliat STB/TPBI; nu înlocuiește validarea titlului de călătorie.
 
@@ -12,6 +12,21 @@ Aplicație web pentru transportul public din București–Ilfov: hartă, poziți
 - Raportări locale în modul static sau comune utilizatorilor aceluiași backend, cu confirmări, ștergerea raportărilor proprii și expirare după 45 de minute.
 
 Geometria traseelor este citită din `shapes.txt`; numai traseele fără geometrie sunt desenate punctat, prin unirea stațiilor. Catalogul include 460 de variante distincte după secvența stațiilor, selectabile în panoul liniei. Liniile sunt sortate numeric, inclusiv sufixe (1, 10, 41, 104, 441, 441B). Orarul respectă `calendar.txt`, excepțiile `calendar_dates.txt`, sensul, stația, ora locală și cursele de după miezul nopții. Metroul are orare și trasee; pozițiile live sunt afișate numai pentru vehiculele furnizate efectiv de TPBI. Datele și sursele sunt etichetate separat de exemple și de raportările neverificate ale utilizatorilor.
+
+
+## Comenzi rapide și integrarea mo-bi (v0.5)
+
+Linia, destinația/sensul, butonul „Schimbă sensul” și „Ai observat ceva pe traseu? / Raportează control” sunt în bara fixă de deasupra hărții. Rămân disponibile când derulezi. Pe telefon, raportarea are și un buton direct în bara de jos. Lista lungă de linii se deschide la cerere prin „Caută linii și stații”; alegerea numerică rapidă este permanent vizibilă. Raportarea pornește cu linia, sensul și stația deja selectate. Schimbarea sensului actualizează simultan traseul, stațiile, orarul și vehiculele cu sens cunoscut. Modurile și sensurile indisponibile nu sunt inventate.
+
+Pozițiile live folosesc implicit **https://mo-bi.ro/python_api**. Backend-ul colectează datele la 30 de secunde într-un cache comun tuturor browserelor, conform [termenilor datelor deschise](https://mo-bi.ro/node/17). Nu se fac cereri directe din browser către mo-bi. Nu se solicită `/psg` și nu se citesc sau expun date despre pasageri/ocupare. Actualizarea la 5 secunde menționată în aplicația lor nu este interpretată drept obligație sau cotă API pentru acest client.
+
+Sunt păstrate poziția GPS, identificatorul vehiculului, înmatricularea, ruta și sensul. Timestamp-ul GPS este folosit pentru prospețime, nu timestamp-ul exterior al înregistrării. Înregistrările duplicate sunt reunite după identitatea vehiculului, alegând observația GPS mai nouă și evitând timestamp-uri viitoare. Coordonatele, identificatorii și corespondența cu rutele și cursele GTFS sunt validate; informațiile incompatibile nu sunt atribuite arbitrar unei linii. Destinația este rezolvată din GTFS când identificatorii permit.
+
+Orarele, estimările și alertele continuă să folosească GTFS/GTFS-Realtime TPBI: API-ul public mo-bi verificat documentează vehiculele, nu un înlocuitor pentru toate aceste fluxuri. Dacă mo-bi este indisponibil sau nu are poziții recente utilizabile, se selectează cache-ul GTFS de rezervă, fără suprapunerea celor două flote. Sursa activă și motivul rezervei sunt afișate. `/api/realtime` include diagnosticul `vehicleSources`. `--vehicle-source gtfs` permite alegerea explicită a sursei vechi; în modul de capturi nu se contactează mo-bi.
+
+Pe site există descrieri mai ample (trafic și instrumente de editare a hărții), dar Swagger-ul public verificat în această etapă expune `/python_api` și `/python_api/psg`. Rutele de trafic testate au răspuns HTTP 400 și nu sunt activate în aplicație. Nu pretindem că toate instrumentele platformei mo-bi sunt disponibile prin API. Clientul nostru este implementat independent; nu a fost copiat cod din aplicațiile GPLv3 BucharestOpenData. Atribuirea TPBI/mo-bi și linkul termenilor sunt vizibile în subsol. Informațiile sunt oferite cu titlu informativ, fără garanția exactității sau a acoperirii fiecărui vehicul.
+
+`node tests/top-controls-browser.cjs` verifică comenzile deasupra primei pagini și după scroll, schimbarea sensului, filtrarea vehiculelor, stația implicită a raportării și accesul rapid pe mobil. Testele `test_mobi.py` acoperă normalizarea, duplicatele, GPS-ul vechi, coordonatele/rutele invalide, excluderea ocupării și trecerea la sursa de rezervă/recuperarea sursei principale.
 
 ## Rulare statică — fără build sau instalări
 
@@ -57,7 +72,7 @@ python3 server.py --data data/catalog.json --gtfs /cale/BUCHAREST-REGION.zip --d
 
 ## Sosiri, orar și raportări pe hartă
 
-Interfața v0.4 pune liniile într-un panou compact, lângă hartă. Selectează linia, sensul/varianta, apoi stația în „Sosiri în stație” sau apasă numele unei stații din traseu. API-ul `/api/timetable?line=…&direction=…&stop=…` combină orarul GTFS cu actualizările recente ale cursei și stației. Sunt afișate separat **LIVE**, **Planificat**, **Anulată** și **Nu oprește**. O estimare veche nu rămâne etichetată live. Datele sunt recitite la 30 de secunde; schimbarea stației în timpul unei cereri în curs declanșează cererea pentru ultima selecție.
+Interfața v0.5 pune liniile într-un panou compact, lângă hartă. Selectează linia, sensul/varianta, apoi stația în „Sosiri în stație” sau apasă numele unei stații din traseu. API-ul `/api/timetable?line=…&direction=…&stop=…` combină orarul GTFS cu actualizările recente ale cursei și stației. Sunt afișate separat **LIVE**, **Planificat**, **Anulată** și **Nu oprește**. O estimare veche nu rămâne etichetată live. Datele sunt recitite la 30 de secunde; schimbarea stației în timpul unei cereri în curs declanșează cererea pentru ultima selecție.
 
 „Vezi orarul pe o zi” permite alegerea unei date și afișează toate plecările planificate pentru ziua calendaristică, inclusiv cursele din serviciul zilei anterioare care trec de miezul nopții. Data de serviciu a actualizării realtime trebuie să corespundă; nu aplicăm o anulare de azi cursei de mâine cu același identificator. Fără o estimare recentă, ora rămâne explicit planificată. SQLite indexează orarul la prima pornire, în afara checkout-ului.
 
@@ -74,7 +89,7 @@ Controlul raportat are un marcaj **!** la coordonata stației selectate, preluat
 | Actualizări curse | https://gtfs.tpbi.ro/api/gtfs-rt/tripUpdates |
 | Alerte | https://gtfs.tpbi.ro/api/gtfs-rt/serviceAlerts |
 
-Backend-ul decodează Protocol Buffers și expune JSON la `/api/realtime`. Un singur worker preia fiecare flux o dată la **30 de secunde**, comun tuturor browserelor; cererile browserelor către API citesc numai cache-ul. `--poll-seconds` permite un interval mai mare (minimum 30). Aceasta este frecvența aplicației, nu o garanție despre frecvența sau acoperirea TPBI. Respectă termenii sursei și eventualele limite comunicate de operator.
+Backend-ul normalizează JSON mo-bi și decodează Protocol Buffers și expune JSON la `/api/realtime`. Un singur worker preia fluxul mo-bi și cele trei fluxuri GTFS-Realtime o dată la **30 de secunde**, comun tuturor browserelor; cererile browserelor către API citesc numai cache-ul. `--poll-seconds` permite un interval mai mare (minimum 30). Aceasta este frecvența aplicației, nu o garanție despre frecvența sau acoperirea TPBI. Respectă termenii sursei și eventualele limite comunicate de operator.
 
 Fiecare flux are stare independentă: conectare, recent, vechi, eroare sau captură. Timestamp-urile sursei sunt păstrate; o descărcare nouă nu face un timestamp vechi să pară recent. Pragul de prospețime este de **180 de secunde**, iar timestamp-urile cu peste 120 de secunde în viitor nu sunt considerate recente. Pozițiile fără timestamp sau mai vechi de 15 minute sunt ascunse în modul live. Pozițiile recente sunt albastre, cele vechi sunt ocru. La pierderea sursei, cache-ul este marcat vechi; estimările curente sunt oprite. Lipsa alertelor și indisponibilitatea fluxului sunt stări distincte. Vechimea se actualizează în browser chiar și când conexiunea se întrerupe.
 

@@ -1,5 +1,7 @@
 """Cached TPBI GTFS-Realtime ingestion. No client-supplied URLs or credentials."""
 import concurrent.futures
+from collections import defaultdict
+from mobi import URL as MOBI_URL, decode as decode_mobi
 import copy
 import csv
 import io
@@ -38,6 +40,8 @@ class StaticIndex:
     def __init__(self, path=None):
         self.trips = {}
         self.stops = {}
+        self.routes = {}
+        self.headsigns = {}
         if path:
             with ZipFile(path) as archive:
                 if sum(i.file_size for i in archive.infolist()) > 512 * 1024 * 1024:
@@ -48,6 +52,11 @@ class StaticIndex:
                 self.trips = {r['trip_id']: dict(routeId=r['route_id'], direction=r.get('direction_id') or None,
                                                headsign=r.get('trip_headsign', '')) for r in rows('trips.txt')}
                 self.stops = {r['stop_id']: r['stop_name'] for r in rows('stops.txt')}
+                if 'routes.txt' in archive.namelist():self.routes={r['route_id']:r for r in rows('routes.txt')}
+                destinations=defaultdict(dict)
+                for trip in self.trips.values():
+                    if trip['headsign']:destinations[(trip['routeId'],trip['direction'])].setdefault(trip['headsign'].strip().casefold(),trip['headsign'])
+                self.headsigns={key:next(iter(names.values())) for key,names in destinations.items() if len(names)==1}
 
     def trip(self, value):
         reference = self.trips.get(value.trip_id, {})
@@ -114,7 +123,7 @@ def decode(name, payload, index):
 
 def download(url):
     request = urllib.request.Request(url, headers={'User-Agent': 'PeLinie/0.3 (GTFS-Realtime client)',
-                                                  'Accept': 'application/x-protobuf, application/octet-stream'})
+                                                  'Accept': 'application/json, application/x-protobuf, application/octet-stream'})
     with urllib.request.urlopen(request, timeout=10) as response:
         body = response.read(MAX_BYTES + 1)
     if len(body) > MAX_BYTES:
@@ -128,8 +137,10 @@ def alert_active(item, now):
 
 
 class Realtime:
-    def __init__(self, index=None, *, interval=30, fetch=download, clock=time.time, snapshots=None):
+    def __init__(self, index=None, *, interval=30, fetch=download, clock=time.time, snapshots=None, mobi=False):
         self.index = index or StaticIndex()
+        self.endpoints=dict(ENDPOINTS)
+        if mobi and not snapshots:self.endpoints['mobiVehicles']=MOBI_URL
         self.interval = max(30, interval)
         self.fetch = fetch
         self.clock = clock
@@ -138,16 +149,16 @@ class Realtime:
         self.stop = threading.Event()
         self.thread = None
         self.feeds = {name: dict(timestamp=None, items=[], rejected=0, ignored=0, error=None,
-                                 attemptedAt=None, receivedAt=None) for name in ENDPOINTS}
+                                 attemptedAt=None, receivedAt=None) for name in self.endpoints}
 
     def refresh_one(self, name):
         attempted = int(self.clock())
         index = self.index
         try:
-            payload = (self.snapshots / name).read_bytes() if self.snapshots else self.fetch(ENDPOINTS[name])
+            payload = (self.snapshots / name).read_bytes() if self.snapshots else self.fetch(self.endpoints[name])
             if len(payload) > MAX_BYTES:
                 raise ValueError('Fluxul depășește limita de 16 MB.')
-            decoded = decode(name, payload, index)
+            decoded = decode_mobi(payload,index,int(self.clock())) if name=='mobiVehicles' else decode(name, payload, index)
             result = dict(**decoded, error=None, attemptedAt=attempted, receivedAt=int(self.clock()))
             with self.lock:
                 if self.index is index:self.feeds[name] = result
@@ -159,12 +170,12 @@ class Realtime:
     def replace_index(self,index):
         with self.lock:
             self.index=index
-            self.feeds={name:dict(timestamp=None,items=[],rejected=0,ignored=0,error=None,attemptedAt=None,receivedAt=None) for name in ENDPOINTS}
+            self.feeds={name:dict(timestamp=None,items=[],rejected=0,ignored=0,error=None,attemptedAt=None,receivedAt=None) for name in self.endpoints}
 
     def refresh(self):
-        # Three requests per cycle, shared by every browser; GET /api/realtime never calls TPBI.
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
-            list(pool.map(self.refresh_one, ENDPOINTS))
+        # Upstream requests are shared by every browser; GET /api/realtime only reads cache.
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+            list(pool.map(self.refresh_one, self.endpoints))
 
     def start(self):
         def run():
@@ -199,5 +210,17 @@ class Realtime:
                 item['stale'] = value['status'] != 'fresh' or not fresh(item.get('timestamp', value['timestamp']), now)
                 if name == 'serviceAlerts':
                     item['active'] = alert_active(item, now)
-        return dict(enabled=True, mode='snapshot' if self.snapshots else 'live', generatedAt=now,
+        sources={}
+        if 'mobiVehicles' in feeds:
+            primary=feeds.pop('mobiVehicles');backup=feeds['vehiclePositions']
+            for key,value in [('mobi',primary),('gtfs',backup)]:
+                sources[key]={k:value.get(k) for k in ('status','error','receivedAt','timestamp')}
+                sources[key]['count']=len(value['items'])
+            if primary['status']=='fresh' and any(not item['stale'] for item in primary['items']):
+                feeds['vehiclePositions']=primary
+            else:
+                backup.update(source='gtfs',sourceLabel='TPBI GTFS · rezervă',fallbackReason=primary['error'] or 'mo-bi nu are poziții recente utilizabile')
+        feeds['vehiclePositions'].setdefault('source','gtfs')
+        feeds['vehiclePositions'].setdefault('sourceLabel','TPBI GTFS')
+        return dict(vehicleSources=sources,enabled=True, mode='snapshot' if self.snapshots else 'live', generatedAt=now,
                     pollSeconds=self.interval, staleSeconds=STALE_SECONDS, feeds=feeds)

@@ -207,6 +207,7 @@ def main():
     realtime_group.add_argument('--realtime', action='store_true', help='Poll all three public TPBI endpoints every 30 seconds')
     realtime_group.add_argument('--realtime-snapshots', type=Path, help='Offline replay directory; always labeled snapshot, never live')
     p.add_argument('--gtfs', type=Path, help='Original GTFS ZIP for trip directions and stop names')
+    p.add_argument('--vehicle-source',choices=['mobi','gtfs'],default='mobi',help='Primary live positions; mo-bi falls back to GTFS')
     p.add_argument('--poll-seconds', type=int, default=30, help='Minimum 30; respect provider limits')
     p.add_argument('--sync-gtfs',type=Path,help='Runtime directory for automatic six-hour GTFS refresh')
     args = p.parse_args()
@@ -228,7 +229,7 @@ def main():
             from realtime import Realtime, StaticIndex
         except ImportError:
             p.error('Install optional realtime dependencies: python3 -m pip install -r requirements.txt')
-        server.realtime = Realtime(StaticIndex(args.gtfs), interval=args.poll_seconds, snapshots=args.realtime_snapshots)
+        server.realtime = Realtime(StaticIndex(args.gtfs), interval=args.poll_seconds, snapshots=args.realtime_snapshots,mobi=args.vehicle_source=='mobi')
         server.realtime.start()
     if args.sync_gtfs:
         from catalog_sync import CatalogSync

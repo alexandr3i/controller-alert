@@ -52,7 +52,10 @@
     const selectedReports = () => allReports().filter(report => report.line === selectedId && report.direction === getDirection()).sort((a, b) => b.createdAt - a.createdAt);
     const formatAge = time => { const mins = Math.max(0, Math.floor((Date.now() - time) / 60000)); return mins < 1 ? "chiar acum" : `acum ${mins} min`; };
     const notify = message => { const t = $("toast"); t.textContent = message; t.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 2800); };
+    let linesRenderKey='';
     function renderLines() {
+      const key=JSON.stringify([catalogRevision,selectedId,filter,searchTerm]);
+      if(key===linesRenderKey)return;linesRenderKey=key;
       const matching = [...LINES].sort(routeSort).filter(line => (filter === "all" || line.type === filter) && ((line.number || line.id).includes(searchTerm) || line.label.toLocaleLowerCase("ro").includes(searchTerm) || [...line.stops, ...(line.reverseStops || [])].some(stop => stop.toLocaleLowerCase("ro").includes(searchTerm))));
       const root = $("linesList"); root.replaceChildren();
       $("linesCount").textContent = `${matching.length} ${matching.length === 1 ? "linie" : "linii"}`;
@@ -67,7 +70,7 @@
         body.append(strong, small);
         const arrow = document.createElement("span"); arrow.className = "choice-arrow"; arrow.innerHTML = icon("arrow");
         btn.append(badge, body, arrow);
-        btn.addEventListener("click", () => { selectedId = line.id; selectedVariant=null; reversed = false; renderAll(); if (window.innerWidth < 740) $("routeSection").scrollIntoView({ behavior: "smooth", block: "start" }); });
+        btn.addEventListener("click", () => { selectedId = line.id; selectedVariant=null; reversed = false; renderAll(); if (window.innerWidth < 740) {closeBrowser(); $("routeControls").scrollIntoView({ behavior: "smooth", block: "start" });} });
         root.append(btn);
       });
     }
@@ -81,9 +84,22 @@
       $("routeBadge").className = `route-badge ${line.type}`;
       $("routeTitle").textContent = `Linia ${line.number || line.id}`;
       $("routeSubtitle").textContent = `${line.typeName} · ${importedData ? "date importate" : "traseu demonstrativ"}`;
-      $("reverseButton").disabled = Boolean(importedData && !line.reverseStops);
-      const variantSelect=$('variantSelect');variantSelect.replaceChildren();
-      for(const variant of line.variants||[]){const opt=document.createElement('option');opt.value=variant.id;opt.textContent=(variant.headsign||variant.stops.at(-1))+' · '+variant.stops.length+' stații';variantSelect.append(opt);}
+      $('quickLine').value=line.id;
+      const onlyForward=Boolean(importedData&&!line.reverseStops);
+      $('reverseButton').disabled=onlyForward;
+      const forward=line.stops.at(-1),backward=line.reverseStops?.at(-1)||line.stops[0];
+      const directionSelect=$('directionSelect');
+      const signature=line.id+'|'+forward+'|'+backward+'|'+onlyForward;
+      if(directionSelect.dataset.signature!==signature){directionSelect.replaceChildren();for(const [value,label,disabled] of [['forward','Spre '+forward,false],['reverse','Spre '+backward,onlyForward]]){const option=document.createElement('option');option.value=value;option.textContent=label;option.disabled=disabled;directionSelect.append(option);}directionSelect.dataset.signature=signature;}
+      directionSelect.value=getDirection();
+      $('reverseButton').setAttribute('aria-label','Schimbă sensul: spre '+(reversed?forward:backward));
+      const variantSelect=$('variantSelect');
+      const variantsKey=JSON.stringify((line.variants||[]).map(v=>[v.id,v.headsign,v.stops.length]));
+      if(variantSelect.dataset.signature!==variantsKey){
+        variantSelect.replaceChildren();
+        for(const variant of line.variants||[]){const opt=document.createElement('option');opt.value=variant.id;opt.textContent=(variant.headsign||variant.stops.at(-1))+' · '+variant.stops.length+' stații';variantSelect.append(opt);}
+        variantSelect.dataset.signature=variantsKey;
+      }
       variantSelect.disabled=!line.variants?.length;
       const active=line.variants?.find(v=>v.id===selectedVariant)||line.variants?.find(v=>v.direction===line.directionIds?.[reversed?1:0]);
       if(active)variantSelect.value=active.id;
@@ -138,9 +154,11 @@
       });
     }
     function renderAll() { renderLines(); renderRoute(); renderFeed(); }
+    function closeBrowser(){document.body.classList.remove('routes-open');$('browseLinesButton').setAttribute('aria-expanded','false');}
+    function showBrowser(){document.body.classList.add('routes-open');$('browseLinesButton').setAttribute('aria-expanded','true');$('linesSection').scrollIntoView({behavior:'smooth',block:'start'});$('lineSearch').focus({preventScroll:true});}
     function fillReportLine() {
-      const select = $("formLine"); select.replaceChildren();
-      LINES.forEach(line => { const opt = document.createElement("option"); opt.value = line.id; opt.textContent = `${line.number || line.id} · ${line.typeName}`; select.append(opt); });
+      const select = $("formLine"); select.replaceChildren();const quick=$("quickLine");quick.replaceChildren();
+      [...LINES].sort(routeSort).forEach(line => { const opt = document.createElement("option"); opt.value = line.id; opt.textContent = `${line.number || line.id} · ${line.typeName}`; select.append(opt);quick.append(opt.cloneNode(true)); });
     }
     function fillReportStops(preferredStop) {
       const line = getLine($("formLine").value);
@@ -148,11 +166,14 @@
       const reverseOption = $("formDirection").querySelector('[value="reverse"]');
       reverseOption.disabled = Boolean(importedData && !line.reverseStops);
       if (reverseOption.disabled) $("formDirection").value = "forward";
+      $('formDirection').querySelector('[value="forward"]').textContent='Spre '+line.stops.at(-1);
+      reverseOption.textContent='Spre '+(line.reverseStops?.at(-1)||line.stops[0]);
       const stops = $("formDirection").value === "reverse" ? (line.reverseStops || [...line.stops].reverse()) : line.stops;
       stops.forEach(stop => { const opt = document.createElement("option"); opt.value = stop; opt.textContent = stop; select.append(opt); });
       if (preferredStop && stops.includes(preferredStop)) select.value = preferredStop;
     }
     function openReportDialog(preferredStop) {
+      if(!preferredStop){const line=getLine(selectedId),ids=reversed?line.reverseStopIds:line.stopIds;const i=ids?.indexOf($('journeyStop').value);if(i>=0)preferredStop=currentStops()[i];}
       $("formLine").value = selectedId;
       $("formDirection").value = getDirection();
       fillReportStops(preferredStop);
@@ -167,6 +188,10 @@
     }));
     $("lineSearch").addEventListener("input", event => { searchTerm = event.target.value.trim().toLocaleLowerCase("ro"); renderLines(); });
     $("reverseButton").addEventListener("click", () => { reversed = !reversed; selectedVariant=null; renderRoute(); renderFeed(); });
+    $('quickLine').addEventListener('change',()=>{selectedId=$('quickLine').value;selectedVariant=null;reversed=false;closeBrowser();renderAll();});
+    $('directionSelect').addEventListener('change',()=>{reversed=$('directionSelect').value==='reverse';selectedVariant=null;renderAll();});
+    $('browseLinesButton').addEventListener('click',()=>{if(document.body.classList.contains('routes-open'))closeBrowser();else showBrowser();});
+    $('quickReportButton').addEventListener('click',()=>openReportDialog());
     $("newReportButton").addEventListener("click", () => openReportDialog());
     $("formLine").addEventListener("change", () => fillReportStops());
     $("formDirection").addEventListener("change", () => fillReportStops());
@@ -192,16 +217,17 @@
       notify(persisted ? "Raportare adăugată doar pe dispozitivul tău." : "Raportare adăugată doar pentru această sesiune.");
       $("reportsSection").scrollIntoView({ behavior: "smooth", block: "nearest" });
     });
-    $("aboutButton").addEventListener("click", () => notify("PeLinie v0.4 — experiment independent. Sursele și modul de raportare sunt indicate în pagină."));
+    $("aboutButton").addEventListener("click", () => notify("PeLinie v0.5 — experiment independent. Sursele și modul de raportare sunt indicate în pagină."));
     $("resetButton").addEventListener("click", () => { localReports = []; votes = {}; try { localStorage.removeItem(STORAGE_REPORTS); localStorage.removeItem(STORAGE_VOTES); } catch {} renderAll(); notify("Datele locale de test au fost șterse."); });
-    document.querySelectorAll("[data-scroll]").forEach(button => button.addEventListener("click", () => $(button.dataset.scroll).scrollIntoView({ behavior: "smooth", block: "start" })));
+    document.querySelectorAll("[data-scroll]").forEach(button => button.addEventListener("click", () => {if(button.dataset.scroll==="linesSection")showBrowser();else $(button.dataset.scroll).scrollIntoView({ behavior: "smooth", block: "start" });}));
+    const controlsObserver=new ResizeObserver(entries=>{document.documentElement.style.setProperty('--controls-height',Math.ceil(entries[0].target.getBoundingClientRect().height)+'px');});controlsObserver.observe($('routeControls'));
     const map = typeof L === "undefined" ? null : L.map("map", {scrollWheelZoom:false}).setView([44.435,26.102],12);
     const journeyUI=Journey.create({getLine:()=>getLine(selectedId),getDirection:()=>getLine(selectedId).directionIds?.[reversed?1:0]??null,isReversed:()=>reversed,isOnline:()=>sharedMode});
     const mapLayer = map ? L.layerGroup().addTo(map) : null;
     const realtimeUI = LiveTransit.create({map,getLine:()=>getLine(selectedId),getLines:()=>LINES,getDirection:()=>getLine(selectedId).directionIds?.[reversed?1:0] ?? null});
     const reportLayer=map?L.layerGroup().addTo(map):null;
     let mappedKey = "";
-    $('variantSelect').addEventListener('change',()=>{selectedVariant=$('variantSelect').value;const v=getLine(selectedId).variants.find(v=>v.id===selectedVariant);reversed=v.direction===getLine(selectedId).directionIds?.[1];renderAll();});
+    $('variantSelect').addEventListener('change',()=>{selectedVariant=$('variantSelect').value;const v=getLine(selectedId).variants.find(v=>v.id===selectedVariant);reversed=v.direction===getLine(selectedId).directionIds?.[1];renderAll();$('variantSelect').closest('details').open=false;});
     function reportPoint(report){
       if(report.coordinates)return report.coordinates;
       const line=LINES.find(l=>l.id===report.line);if(!line)return null;
@@ -248,7 +274,7 @@
     function useData(data) {
       catalogRevision++;
       realtimeUI.setActive(false);
-      sharedMode=false; sharedReports=[];
+      sharedMode=false; sharedReports=[];$('reportMode').textContent='Raportare locală';
       document.querySelector(".feed-foot").textContent="Raportările sunt salvate doar în acest browser. Importul trebuie repetat după reîncărcare.";
       document.querySelector(".modal-help").textContent="Salvare doar în acest browser; expirare după 45 de minute. Fără GPS, fotografii sau identitatea persoanelor.";
       $("reportForm").querySelector('[type="submit"]').textContent="Salvează local";
@@ -292,15 +318,19 @@
         document.querySelector(".feed-foot").textContent="Raportări comunitare neverificate · expiră în 45 min · actualizare la 30 sec. Ultima sincronizare: "+new Date().toLocaleTimeString("ro-RO",{timeZone:"Europe/Bucharest"});
       } catch { if(!sharedMode||importedData!==requestedCatalog)return; sharedReports=[]; renderAll(); document.querySelector(".feed-foot").textContent="Serviciul comunitar nu răspunde. Raportările nu pot fi verificate; reîncercăm automat."; }
     }
+    function activateCommunity(){
+      sharedMode=true;
+      $('reportMode').textContent='Raportare comunitară';
+      $("modeStatus").textContent="TRASEE IMPORTATE · raportări comunitare neverificate · verifică starea realtime pe hartă";
+      document.querySelector(".modal-help").textContent="Raportarea devine vizibilă tuturor utilizatorilor acestui serviciu și expiră după 45 min. Fără GPS, nume sau fotografii. Maximum 3 raportări în 10 minute pe sesiune.";
+      $("reportForm").querySelector('[type="submit"]').textContent="Publică raportarea";
+      realtimeUI.setActive(true);
+    }
     async function connectCommunity() {
       const initialRevision=catalogRevision;
       try {
         const response=await fetch("api/catalog",{cache:"no-store",signal:AbortSignal.timeout(12000)}); if(!response.ok)throw Error();
-        const data=Transit.validate(await response.json()); if(catalogRevision!==initialRevision)return; useData(data); sharedMode=true;
-        $("modeStatus").textContent="TRASEE IMPORTATE · raportări comunitare neverificate · verifică starea realtime pe hartă";
-        document.querySelector(".modal-help").textContent="Raportarea devine vizibilă tuturor utilizatorilor acestui serviciu și expiră după 45 min. Fără GPS, nume sau fotografii. Maximum 3 raportări în 10 minute pe sesiune.";
-        $("reportForm").querySelector('[type="submit"]').textContent="Publică raportarea";
-        realtimeUI.setActive(true);
+        const data=Transit.validate(await response.json()); if(catalogRevision!==initialRevision)return; useData(data); activateCommunity();
         await refreshShared();
       } catch {
         try {
@@ -321,6 +351,6 @@
         if(data.sync?.error)$('dataStatus').textContent=data.sync.error;
         else if(previous.sync?.error)$('dataStatus').textContent='Catalog TPBI sincronizat · '+data.lines.length+' linii.';
         previous.sync=data.sync;
-        if(data.revision&&data.revision!==previous.revision){const line=selectedId,reverse=reversed;useData(data);selectedId=LINES.some(l=>l.id===line)?line:LINES[0].id;reversed=reverse&&!!getLine(selectedId).reverseStops;sharedMode=true;realtimeUI.setActive(true);renderAll();await refreshShared();notify('Traseele și orarele TPBI au fost actualizate.');}
+        if(data.revision&&data.revision!==previous.revision){const line=selectedId,reverse=reversed;useData(data);selectedId=LINES.some(l=>l.id===line)?line:LINES[0].id;reversed=reverse&&!!getLine(selectedId).reverseStops;activateCommunity();renderAll();await refreshShared();notify('Traseele și orarele TPBI au fost actualizate.');}
       }catch{/* Preserve the last validated catalog and report the independent live state. */}
     },300000);

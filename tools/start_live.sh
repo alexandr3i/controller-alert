@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 cd "$(dirname "$0")/.."
-# Runtime files stay outside the checkout. A new feed version gets a separate database.
+# Runtime catalogs stay outside the checkout; reports use the shared runtime database.
 if [ "$#" -gt 0 ]; then
     pelinie_runtime=$(python3 tools/prepare_transit.py --directory "${TMPDIR:-/tmp}/pelinie-transit" --zip "$1")
 else

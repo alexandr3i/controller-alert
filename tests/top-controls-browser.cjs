@@ -1,0 +1,24 @@
+// Static server on port 8000. Synthetic API, no external writes or occupation data.
+const {chromium}=require('playwright');const assert=require('node:assert/strict');
+(async()=>{const browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH||'/usr/bin/chromium',args:['--no-sandbox']});try{
+ const page=await browser.newPage({viewport:{width:390,height:844}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ const now=Math.floor(Date.now()/1000),line={id:'r1',number:'41',label:'TEST ROUTE',type:'tram',directionIds:['0','1'],stops:['A','B'],stopIds:['a','b'],coordinates:[[44.43,26.1],[44.44,26.11]],reverseStops:['B retur','A retur'],reverseStopIds:['br','ar'],reverseCoordinates:[[44.44,26.11],[44.43,26.1]]};
+ const catalog={version:1,source:'SYNTHETIC TEST',importedAt:new Date().toISOString(),lines:[line,{...line,id:'r2',number:'104'}]};
+ const feed={timestamp:now,status:'fresh',error:null,items:[]};const state={enabled:true,mode:'live',generatedAt:now,pollSeconds:30,staleSeconds:180,feeds:{vehiclePositions:{...feed,source:'mobi',sourceLabel:'TPBI / mo-bi',items:[{id:'v0',routeId:'r1',direction:'0',timestamp:now,latitude:44.43,longitude:26.1,stale:false},{id:'v1',routeId:'r1',direction:'1',timestamp:now,latitude:44.44,longitude:26.11,stale:false}]},tripUpdates:feed,serviceAlerts:feed}};
+ await page.route('**/api/catalog',r=>r.fulfill({json:catalog}));await page.route('**/api/reports',r=>r.fulfill({json:[]}));await page.route('**/api/realtime',r=>r.fulfill({json:state}));
+ await page.route('**/api/timetable?*',r=>r.fulfill({json:{enabled:true,generatedAt:now,realtimeAvailable:false,departures:[]}}));
+ await page.goto('http://127.0.0.1:8000');await page.waitForFunction(()=>document.querySelector('#modeStatus').textContent.includes('comunitare'));await page.waitForSelector('.leaflet-interactive[fill="#4189ff"]',{state:'attached'});
+ async function reachable(id){assert(await page.evaluate(id=>{const element=document.getElementById(id),box=element.getBoundingClientRect();return box.top>=0&&box.bottom<=innerHeight-56&&element.contains(document.elementFromPoint(box.x+box.width/2,box.y+box.height/2));},id),id+' reachable without scrolling');}
+ for(const id of ['quickLine','directionSelect','reverseButton','newReportButton'])await reachable(id);
+ assert.equal(await page.locator('.leaflet-interactive[fill="#4189ff"]').count(),1);
+ assert.equal(await page.locator('#directionSelect').inputValue(),'forward');await page.locator('#reverseButton').click();assert.equal(await page.locator('#directionSelect').inputValue(),'reverse');assert.match(await page.locator('#directionText').innerText(),/B retur → A retur/);
+ assert.equal(await page.locator('.leaflet-interactive[fill="#4189ff"]').count(),1);
+ await page.locator('#journeyStop').selectOption('ar');await page.evaluate(()=>window.scrollTo(0,document.body.scrollHeight));for(const id of ['directionSelect','reverseButton','newReportButton'])await reachable(id);
+ await page.locator('#newReportButton').click();assert.match(await page.locator('#reportMode').innerText(),/raportare comunitară/i);assert.equal(await page.locator('#formLine').inputValue(),'r1');assert.equal(await page.locator('#formDirection').inputValue(),'reverse');assert.equal(await page.locator('#formStop').inputValue(),'A retur');await page.locator('#cancelModalButton').click();
+ await page.locator('#quickReportButton').click();assert(await page.locator('#reportDialog').evaluate(el=>el.open));await page.locator('#cancelModalButton').click();
+ await page.locator('#quickLine').selectOption('r2');assert.equal(await page.locator('#directionSelect').inputValue(),'forward');assert.equal(await page.locator('#quickLine').inputValue(),'r2');
+ await page.locator('#browseLinesButton').click();assert(await page.locator('#lineSearch').isVisible());await page.locator('#linesList button').filter({has:page.locator('.line-box').filter({hasText:/^41$/})}).click();assert.equal(await page.locator('#quickLine').inputValue(),'r1');assert(!(await page.locator('#linesSection').isVisible()));
+ assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.evaluate(()=>scrollTo(0,0));await page.screenshot({path:'/tmp/pelinie-actions-mobile.png'});
+ await page.setViewportSize({width:1440,height:1000});await page.evaluate(()=>scrollTo(0,0));for(const id of ['directionSelect','reverseButton','newReportButton'])await reachable(id);await page.screenshot({path:'/tmp/pelinie-actions-desktop.png'});
+ assert.deepEqual(errors,[]);console.log('PASS first-screen and sticky actions, direction/vehicle synchronization, current-station report defaults, bottom report shortcut, quick line selection and responsive layout');
+}finally{await browser.close()}})().catch(error=>{console.error(error);process.exit(1)});
