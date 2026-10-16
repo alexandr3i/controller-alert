@@ -7,14 +7,14 @@ const fixture={version:1,source:'SYNTHETIC TEST DATA, NOT OFFICIAL',importedAt:'
 const browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH||'/usr/bin/chromium',args:['--no-sandbox']});
 try {
 const context=await browser.newContext();const page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
-await page.goto('http://127.0.0.1:8000');await page.waitForSelector('#linesList button');
+await page.goto('http://127.0.0.1:8000');await page.waitForFunction(()=>document.querySelector('#dataStatus').textContent.includes('TPBI'));
 await page.locator('#transitFile').setInputFiles({name:'fixture.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(fixture))});
-assert.match(await page.locator('#dataStatus').innerText(),/SYNTHETIC/);assert.equal(await page.locator('#linesList button').count(),1);
+await page.waitForFunction(()=>document.querySelector('#dataStatus').textContent.includes('SYNTHETIC'));assert.match(await page.locator('#dataStatus').innerText(),/SYNTHETIC/);assert.equal(await page.locator('#linesList button').count(),1);
 assert.equal(await page.locator('.leaflet-interactive').count(),3);assert.match(await page.locator('#directionText').innerText(),/A → B/);
 await page.locator('#reverseButton').click();assert.match(await page.locator('#directionText').innerText(),/C → A/);
 await page.locator('#newReportButton').click();assert.equal(await page.locator('#formStop option').first().innerText(),'C');await page.locator('#reportForm button[type=submit]').click();assert.equal(await page.locator('.report-origin.me').count(),1);
 await page.locator('#demoDataButton').click();assert.equal(await page.locator('.report-origin.me').count(),0);
-await page.locator('#transitFile').setInputFiles({name:'bad.json',mimeType:'application/json',buffer:Buffer.from('{}')});assert.match(await page.locator('#dataStatus').innerText(),/nereușit/);assert.equal(await page.locator('#linesList button').count(),5);
+await page.locator('#transitFile').setInputFiles({name:'bad.json',mimeType:'application/json',buffer:Buffer.from('{}')});await page.waitForFunction(()=>document.querySelector('#dataStatus').textContent.includes('nereușit'));assert.match(await page.locator('#dataStatus').innerText(),/nereușit/);assert.equal(await page.locator('#linesList button').count(),5);
 await page.setViewportSize({width:390,height:844});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));assert.deepEqual(errors,[]);
 console.log('PASS imported route rendering, actual return stops, dataset isolation, invalid import, mobile and browser errors');
 if(process.env.COMMUNITY_URL){

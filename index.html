@@ -30,7 +30,7 @@
         <span class="brandmark"><svg width="25" height="25"><use href="#i-route"/></svg></span>
         <span><span class="brandname">Pe<span>Linie</span></span><span class="brandsub">București, în mișcare.</span></span>
       </a>
-      <div class="headright"><span class="top-pill"><span class="dot"></span> Prototip v0.2</span><button class="about-link" id="aboutButton" type="button">Despre proiect ↗</button></div>
+      <div class="headright"><span class="top-pill"><span class="dot"></span> Prototip v0.3</span><button class="about-link" id="aboutButton" type="button">Despre proiect ↗</button></div>
     </header>
     <main id="top">
       <section class="hero" aria-labelledby="hero-title">
@@ -50,7 +50,14 @@
         <div class="panel-padding">
           <h2 id="mapTitle">Harta Bucureștiului</h2>
           <p id="mapStatus" role="status">Hartă OpenStreetMap · fără vehicule live conectate.</p>
+          <p id="liveSummary" role="status">Se verifică disponibilitatea datelor realtime.</p>
+          <label class="vehicle-toggle"><input id="allVehicles" type="checkbox" checked /> Arată vehiculele de pe toate liniile din catalog</label>
           <div id="map" aria-label="Hartă interactivă București"></div>
+          <div id="liveFeeds" class="live-feed-grid" aria-live="polite"></div>
+          <div class="live-details">
+            <section aria-labelledby="arrivalsTitle"><h3 id="arrivalsTitle">Estimări și actualizări de curse</h3><p class="small-note">Pentru linia selectată · filtrare pe sens când este identificat · orele sunt în fusul Bucureștiului.</p><div id="liveArrivals"></div></section>
+            <section aria-labelledby="alertsTitle"><h3 id="alertsTitle">Alerte TPBI pentru linia selectată</h3><div id="liveAlerts"></div></section>
+          </div>
           <p id="tileStatus" role="status"></p>
           <div class="data-controls">
             <label class="secondary" for="transitFile">Importă trasee GTFS convertite (JSON)</label>
@@ -58,7 +65,7 @@
             <button id="demoDataButton" class="secondary" type="button">Revino la exemple</button>
           </div>
           <p id="dataStatus" role="status">Trasee demonstrative. Nu sunt desenate pe hartă deoarece nu au coordonate verificate.</p>
-          <p class="small-note">Import local, fără încărcare pe un server. Conversie: tools/import_gtfs.py. Harta necesită internet; traseele importate nu sunt poziții live. Nu colectăm locația ta.</p>
+          <p class="small-note">Import local, fără încărcare pe un server. Conversie: tools/import_gtfs.py. Harta necesită internet; traseele importate sunt separate de pozițiile vehiculelor. Nu colectăm locația ta.</p>
         </div>
       </section>
       <div class="layout">
@@ -121,6 +128,7 @@
   <div id="toast" role="status" aria-live="polite"></div>
   <script src="vendor/leaflet/leaflet.js"></script>
   <script src="transit.js"></script>
+  <script src="live.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

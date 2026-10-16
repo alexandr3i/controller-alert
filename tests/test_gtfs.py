@@ -1,6 +1,8 @@
 import importlib.util
 import json
 import tempfile
+import subprocess
+import sys
 import unittest
 import zipfile
 from pathlib import Path
@@ -48,6 +50,19 @@ class GTFSConversion(unittest.TestCase):
                 for name, data in members.items():
                     z.writestr(name, data)
             self.assertNotIn('reverseStops', gtfs.convert(path, 'Test')['lines'][0])
+
+    def test_runtime_preparation_is_repeatable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / 'source.zip'
+            self.fixture(source)
+            script = Path(__file__).parents[1] / 'tools/prepare_transit.py'
+            command = [sys.executable, str(script), '--directory', str(root / 'runtime'), '--zip', str(source)]
+            first = subprocess.check_output(command, text=True).strip()
+            catalog = (Path(first) / 'catalog.json').read_bytes()
+            second = subprocess.check_output(command, text=True).strip()
+            self.assertEqual(first, second)
+            self.assertEqual(catalog, (Path(second) / 'catalog.json').read_bytes())
 
 
 if __name__ == '__main__':

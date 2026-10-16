@@ -7,6 +7,12 @@
     for (const line of data.lines) {
       if (!line || typeof line.id !== 'string' || !line.id || line.id.length > 150 || ids.has(line.id) || typeof line.label !== 'string' || line.label.length > 500 || !['tram','bus','trolley'].includes(line.type)) throw Error('Linie invalidă sau duplicată.');
       if (line.number !== undefined && (typeof line.number !== 'string' || line.number.length > 50)) throw Error('Număr de linie invalid.');
+      if (line.agencyId !== undefined && (typeof line.agencyId !== 'string' || line.agencyId.length > 150)) throw Error('Operator invalid.');
+      if (line.routeType !== undefined && !Number.isInteger(line.routeType)) throw Error('Tip de rută invalid.');
+      if (line.directionIds !== undefined && (!Array.isArray(line.directionIds) || !line.directionIds.length || line.directionIds.length > 2 || line.directionIds.some(d=>!['0','1'].includes(d)))) throw Error('Identificatori de sens invalizi.');
+      for (const [key,names] of [['stopIds',line.stops],['reverseStopIds',line.reverseStops]]) {
+        if (line[key] !== undefined && (!Array.isArray(line[key]) || !Array.isArray(names) || line[key].length !== names.length || line[key].some(id=>typeof id !== 'string' || !id || id.length > 150))) throw Error('Identificatori de stație invalizi.');
+      }
       ids.add(line.id);
       for (const [index,[names,coords]] of [[line.stops,line.coordinates], [line.reverseStops,line.reverseCoordinates]].entries()) {
         if (index === 1 && names === undefined && coords === undefined) continue;

@@ -22,8 +22,8 @@ jobs:
       - name: Prepare static files only
         run: |
           mkdir -p /tmp/pelinie-pages
-          cp index.html app.js transit.js styles.css /tmp/pelinie-pages/
-          cp -R vendor /tmp/pelinie-pages/
+          cp index.html app.js transit.js live.js styles.css /tmp/pelinie-pages/
+          cp -R vendor data /tmp/pelinie-pages/
       - uses: actions/upload-pages-artifact@v3
         with:
           path: /tmp/pelinie-pages

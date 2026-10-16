@@ -10,6 +10,7 @@
     ];
     const DEMO_LINES = LINES;
     let importedData = null;
+    let catalogRevision = 0;
     let sharedMode = false;
     let sharedReports = [];
     const now = Date.now();
@@ -177,16 +178,18 @@
       notify(persisted ? "Raportare adăugată doar pe dispozitivul tău." : "Raportare adăugată doar pentru această sesiune.");
       $("reportsSection").scrollIntoView({ behavior: "smooth", block: "nearest" });
     });
-    $("aboutButton").addEventListener("click", () => notify("PeLinie v0.2 — experiment independent. Sursele și modul de raportare sunt indicate în pagină."));
+    $("aboutButton").addEventListener("click", () => notify("PeLinie v0.3 — experiment independent. Sursele și modul de raportare sunt indicate în pagină."));
     $("resetButton").addEventListener("click", () => { localReports = []; votes = {}; try { localStorage.removeItem(STORAGE_REPORTS); localStorage.removeItem(STORAGE_VOTES); } catch {} renderAll(); notify("Datele locale de test au fost șterse."); });
     document.querySelectorAll("[data-scroll]").forEach(button => button.addEventListener("click", () => $(button.dataset.scroll).scrollIntoView({ behavior: "smooth", block: "start" })));
     const map = typeof L === "undefined" ? null : L.map("map", {scrollWheelZoom:false}).setView([44.435,26.102],12);
     const mapLayer = map ? L.layerGroup().addTo(map) : null;
+    const realtimeUI = LiveTransit.create({map,getLine:()=>getLine(selectedId),getLines:()=>LINES,getDirection:()=>getLine(selectedId).directionIds?.[reversed?1:0] ?? null});
     let mappedKey = "";
     if (map) {
       L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {maxZoom:19, attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'}).on("tileerror",()=>{$("tileStatus").textContent="Fundalul hărții nu poate fi încărcat. Verifică accesul la tile.openstreetmap.org. Traseele importate rămân disponibile.";}).addTo(map);
     } else $("mapStatus").textContent = "Harta nu a putut fi inițializată.";
     function drawMap() {
+      realtimeUI.render();
       if (!map) return;
       const key = (importedData ? importedData.importedAt : "demo") + selectedId + reversed;
       if (key === mappedKey) return;
@@ -203,6 +206,8 @@
       map.fitBounds(L.latLngBounds(points),{padding:[24,24],maxZoom:15});
     }
     function useData(data) {
+      catalogRevision++;
+      realtimeUI.setActive(false);
       sharedMode=false; sharedReports=[];
       document.querySelector(".feed-foot").textContent="Raportările sunt salvate doar în acest browser. Importul trebuie repetat după reîncărcare.";
       document.querySelector(".modal-help").textContent="Salvare doar în acest browser; expirare după 45 de minute. Fără GPS, fotografii sau identitatea persoanelor.";
@@ -211,9 +216,9 @@
       selectedId=LINES[0].id; reversed=false; filter="all"; searchTerm=""; $("lineSearch").value="";
       document.querySelectorAll("[data-filter]").forEach(b=>{b.classList.toggle("is-active",b.dataset.filter==="all");b.setAttribute("aria-pressed",String(b.dataset.filter==="all"));});
       $("modeStatus").textContent=data ? "DATE IMPORTATE — sursă declarată de utilizator, fără vehicule live; raportări doar locale" : "MOD DEMONSTRAȚIE — date fictive, fără raportări publice sau poziții în timp real";
-      $("dataStatus").textContent=data ? `Sursă declarată: ${data.source} · Import: ${new Date(data.importedAt).toLocaleString("ro-RO")} · ${data.lines.length} linii. Trasee reprezentative; pot exista alte variante. Segmentele unesc stațiile, nu urmăresc străzile.` : "Trasee demonstrative. Nu sunt desenate pe hartă deoarece nu au coordonate verificate.";
+      $("dataStatus").textContent=data ? `Sursă declarată: ${data.source} · Import: ${new Date(data.importedAt).toLocaleString("ro-RO",{timeZone:"Europe/Bucharest"})} · ${data.lines.length} linii. Trasee reprezentative; pot exista alte variante. Segmentele unesc stațiile, nu urmăresc străzile.` : "Trasee demonstrative. Nu sunt desenate pe hartă deoarece nu au coordonate verificate.";
       $("mapStatus").textContent="Hartă OpenStreetMap · fără vehicule live conectate.";
-      document.querySelector(".route-footer").textContent=data ? "Stații din fișierul importat. Lipsa sensului retur în date dezactivează inversarea. Fără poziții live." : "Schemă demonstrativă; fără coordonate sau vehicule live.";
+      document.querySelector(".route-footer").textContent=data ? "Stații din fișierul importat. Lipsa sensului retur în date dezactivează inversarea. Pozițiile vehiculelor apar separat pe hartă." : "Schemă demonstrativă; fără coordonate sau vehicule live.";
       fillReportLine(); renderAll();
     }
     $("transitFile").addEventListener("change",async event=>{
@@ -240,21 +245,29 @@
     }
     async function refreshShared() {
       if(!sharedMode)return;
+      const requestedCatalog=importedData;
       try {
         const response=await fetch("api/reports",{cache:"no-store"}); if(!response.ok)throw Error();
-        sharedReports=await response.json(); renderAll();
-        document.querySelector(".feed-foot").textContent="Raportări comunitare neverificate · expiră în 45 min · actualizare la 30 sec. Ultima sincronizare: "+new Date().toLocaleTimeString("ro-RO");
-      } catch { sharedReports=[]; renderAll(); document.querySelector(".feed-foot").textContent="Serviciul comunitar nu răspunde. Raportările nu pot fi verificate; reîncercăm automat."; }
+        const reports=await response.json();if(!sharedMode||importedData!==requestedCatalog)return;sharedReports=reports; renderAll();
+        document.querySelector(".feed-foot").textContent="Raportări comunitare neverificate · expiră în 45 min · actualizare la 30 sec. Ultima sincronizare: "+new Date().toLocaleTimeString("ro-RO",{timeZone:"Europe/Bucharest"});
+      } catch { if(!sharedMode||importedData!==requestedCatalog)return; sharedReports=[]; renderAll(); document.querySelector(".feed-foot").textContent="Serviciul comunitar nu răspunde. Raportările nu pot fi verificate; reîncercăm automat."; }
     }
     async function connectCommunity() {
+      const initialRevision=catalogRevision;
       try {
-        const response=await fetch("api/catalog",{cache:"no-store"}); if(!response.ok)return;
-        const data=Transit.validate(await response.json()); useData(data); sharedMode=true;
-        $("modeStatus").textContent="TRASEE IMPORTATE · raportări comunitare neverificate · fără vehicule live";
+        const response=await fetch("api/catalog",{cache:"no-store",signal:AbortSignal.timeout(12000)}); if(!response.ok)throw Error();
+        const data=Transit.validate(await response.json()); if(catalogRevision!==initialRevision)return; useData(data); sharedMode=true;
+        $("modeStatus").textContent="TRASEE IMPORTATE · raportări comunitare neverificate · verifică starea realtime pe hartă";
         document.querySelector(".modal-help").textContent="Raportarea devine vizibilă tuturor utilizatorilor acestui serviciu și expiră după 45 min. Fără GPS, nume sau fotografii. Maximum 3 raportări în 10 minute pe sesiune.";
         $("reportForm").querySelector('[type="submit"]').textContent="Publică raportarea";
+        realtimeUI.setActive(true);
         await refreshShared();
-      } catch { /* Static hosting remains fully usable without a backend. */ }
+      } catch {
+        try {
+          const response=await fetch("data/catalog.json",{signal:AbortSignal.timeout(12000)});if(!response.ok)return;
+          const data=Transit.validate(await response.json());if(catalogRevision!==initialRevision)return;useData(data);
+        } catch { /* Static examples remain usable without the bundled catalog. */ }
+      }
     }
     connectCommunity();
     setInterval(refreshShared,30000);

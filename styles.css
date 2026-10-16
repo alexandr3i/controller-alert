@@ -225,3 +225,14 @@
 #tileStatus { color: var(--amber); }
 .leaflet-container { color-scheme: light; color: #172233; }
 @media(max-width:740px) { #map { height: 320px; } }
+
+.vehicle-toggle { display: block; margin: 12px 0; }
+.live-feed-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; margin: 12px 0; }
+.live-feed-status { margin: 0; padding: 12px; background: var(--surface-2); border-radius: 10px; overflow-wrap: anywhere; }
+.live-feed-status[data-status="fresh"] { border-left: 4px solid var(--mint); }
+.live-feed-status[data-status="error"], .live-feed-status[data-status="stale"], .live-feed-status[data-status="snapshot"] { border-left: 4px solid var(--amber); }
+.live-details { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 20px; }
+.live-details section { min-width: 0; }
+.live-details p { overflow-wrap: anywhere; }
+.transit-alert { border-top: 1px solid var(--line); padding: 12px 0; }
+@media(max-width:740px) { .live-feed-grid,.live-details { grid-template-columns: 1fr; } }

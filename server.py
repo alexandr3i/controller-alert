@@ -108,12 +108,15 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         path = urlsplit(self.path).path
+        if path == '/api/realtime':
+            realtime = getattr(self.server, 'realtime', None)
+            return self.send_json(realtime.snapshot() if realtime else {'enabled': False})
         if path == '/api/catalog':
             self.identity()
             return self.send_json(self.server.store.catalog)
         if path == '/api/reports':
             return self.send_json(self.server.store.run(self.identity(), 'list', {}))
-        allowed = path in ('/', '/index.html', '/app.js', '/transit.js', '/styles.css') or path.startswith('/vendor/leaflet/') and '..' not in path and '%' not in path
+        allowed = path in ('/', '/index.html', '/app.js', '/transit.js', '/styles.css', '/live.js', '/data/catalog.json') or path.startswith('/vendor/leaflet/') and '..' not in path and '%' not in path
         if not allowed:
             return self.send_json({'error': 'Not found'}, 404)
         super().do_GET()
@@ -163,6 +166,11 @@ def main():
     p.add_argument('--port', type=int, default=8000)
     p.add_argument('--bind', default='127.0.0.1')
     p.add_argument('--public-origin', help='Exact HTTPS origin of a reverse proxy; also enables Secure cookies')
+    realtime_group = p.add_mutually_exclusive_group()
+    realtime_group.add_argument('--realtime', action='store_true', help='Poll all three public TPBI endpoints every 30 seconds')
+    realtime_group.add_argument('--realtime-snapshots', type=Path, help='Offline replay directory; always labeled snapshot, never live')
+    p.add_argument('--gtfs', type=Path, help='Original GTFS ZIP for trip directions and stop names')
+    p.add_argument('--poll-seconds', type=int, default=30, help='Minimum 30; respect provider limits')
     args = p.parse_args()
     catalog = json.loads(args.data.read_text(encoding='utf-8'))
     if catalog.get('version') != 1 or not catalog.get('lines'):
@@ -171,12 +179,22 @@ def main():
     server.secure = bool(args.public_origin and args.public_origin.startswith('https://'))
     server.public_origin = args.public_origin or f'http://{args.bind}:{args.port}'
     server.store = Store(args.db, catalog)
+    server.realtime = None
+    if args.realtime or args.realtime_snapshots:
+        try:
+            from realtime import Realtime, StaticIndex
+        except ImportError:
+            p.error('Install optional realtime dependencies: python3 -m pip install -r requirements.txt')
+        server.realtime = Realtime(StaticIndex(args.gtfs), interval=args.poll_seconds, snapshots=args.realtime_snapshots)
+        server.realtime.start()
     print(f'PeLinie server on port {args.port}; reports expire after 45 minutes', flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        if server.realtime:
+            server.realtime.close()
         server.server_close()
         server.store.db.close()
 

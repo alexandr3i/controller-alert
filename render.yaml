@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: pelinie
+    runtime: python
+    branch: main
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: sh tools/start_live.sh
+    healthCheckPath: /api/realtime
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.14
+      - key: PELINIE_BIND
+        value: 0.0.0.0

@@ -48,9 +48,10 @@ def convert(path, source):
                 continue
             names, points = pattern(available[0][1])
             kind = 'tram' if route['route_type'] in ('0', '900') else 'trolley' if route['route_type'] in ('11', '800') else 'bus'
-            line = dict(id=route_id, number=route.get('route_short_name') or route_id, label=f"{route.get('route_short_name') or route_id} · {route.get('route_long_name') or names[0] + ' → ' + names[-1]}", type=kind, stops=names, coordinates=points)
+            line = dict(id=route_id, agencyId=route.get('agency_id', ''), routeType=int(route['route_type']), directionIds=[d for d, _ in available[:2]], stopIds=[sid for _, sid in available[0][1]], number=route.get('route_short_name') or route_id, label=f"{route.get('route_short_name') or route_id} · {route.get('route_long_name') or names[0] + ' → ' + names[-1]}", type=kind, stops=names, coordinates=points)
             if len(available) > 1:
                 line['reverseStops'], line['reverseCoordinates'] = pattern(available[1][1])
+                line['reverseStopIds'] = [sid for _, sid in available[1][1]]
             lines.append(line)
         if not lines:
             raise ValueError('No supported transit routes with stops found')
