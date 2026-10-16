@@ -23,6 +23,7 @@ const assert=require('node:assert/strict');
   assert.match(await page.locator('#liveSummary').innerText(),/1 cu poziție recentă/);
   assert.equal(await page.locator('.leaflet-interactive[fill="#4189ff"]').count(),1);
   assert.equal(await page.locator('.leaflet-interactive[fill="#b4a17c"]').count(),1);
+  await page.locator('.transport-details > summary').click();
   assert.match(await page.locator('#liveArrivals').innerText(),/A → B/);
   assert(!((await page.locator('#liveArrivals').innerText()).includes('SHOULD NOT APPEAR')));
   assert.equal(await page.locator('#liveAlerts article').count(),1);
@@ -36,6 +37,7 @@ const assert=require('node:assert/strict');
   assert.deepEqual(errors,[]);console.log('PASS realtime UI: recent/stale markers, predictions, scoped alerts, safe text, offline state, polling and mobile layout');
   if(process.env.SNAPSHOT_URL){
    const replay=await browser.newPage();await replay.goto(process.env.SNAPSHOT_URL);await replay.waitForFunction(()=>document.querySelector('#liveSummary').textContent.includes('CAPTURĂ ÎNCĂRCATĂ'));
+   await replay.locator('#allVehicles').check();
    assert.match(await replay.locator('#liveSummary').innerText(),/767 vehicule/);
    assert.equal(await replay.locator('.leaflet-interactive[fill="#4189ff"]').count(),0);
    assert.equal(await replay.locator('.leaflet-interactive[fill="#b4a17c"]').count(),767);

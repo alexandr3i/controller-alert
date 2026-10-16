@@ -51,7 +51,7 @@ class StaticIndex:
 
     def trip(self, value):
         reference = self.trips.get(value.trip_id, {})
-        return dict(tripId=value.trip_id, routeId=value.route_id or reference.get('routeId', ''),
+        return dict(startDate=value.start_date or None,startTime=value.start_time or None,tripId=value.trip_id, routeId=value.route_id or reference.get('routeId', ''),
                     direction=str(value.direction_id) if value.HasField('direction_id') else reference.get('direction'),
                     headsign=reference.get('headsign', ''),
                     relationship=gtfs.TripDescriptor.ScheduleRelationship.Name(value.schedule_relationship))
@@ -84,7 +84,7 @@ def decode(name, payload, index):
             for stop in update.stop_time_update:
                 arrival = int(stop.arrival.time) if stop.HasField('arrival') and stop.arrival.HasField('time') else None
                 departure = int(stop.departure.time) if stop.HasField('departure') and stop.departure.HasField('time') else None
-                event = stop.arrival if arrival else stop.departure
+                event = stop.arrival if stop.HasField('arrival') and (stop.arrival.HasField('time') or stop.arrival.HasField('delay')) else stop.departure
                 stops.append(dict(stopId=stop.stop_id, stopName=index.stops.get(stop.stop_id, stop.stop_id),
                                   sequence=int(stop.stop_sequence), arrival=arrival, departure=departure,
                                   delay=int(event.delay) if event.HasField('delay') else None,
@@ -142,18 +142,24 @@ class Realtime:
 
     def refresh_one(self, name):
         attempted = int(self.clock())
+        index = self.index
         try:
             payload = (self.snapshots / name).read_bytes() if self.snapshots else self.fetch(ENDPOINTS[name])
             if len(payload) > MAX_BYTES:
                 raise ValueError('Fluxul depășește limita de 16 MB.')
-            decoded = decode(name, payload, self.index)
+            decoded = decode(name, payload, index)
             result = dict(**decoded, error=None, attemptedAt=attempted, receivedAt=int(self.clock()))
             with self.lock:
-                self.feeds[name] = result
+                if self.index is index:self.feeds[name] = result
         except (OSError, ValueError, urllib.error.URLError) as error:
             message = f'HTTP {error.code}' if isinstance(error, urllib.error.HTTPError) else 'Sursa nu răspunde sau datele sunt invalide.'
             with self.lock:
-                self.feeds[name].update(error=message, attemptedAt=attempted)
+                if self.index is index:self.feeds[name].update(error=message, attemptedAt=attempted)
+
+    def replace_index(self,index):
+        with self.lock:
+            self.index=index
+            self.feeds={name:dict(timestamp=None,items=[],rejected=0,ignored=0,error=None,attemptedAt=None,receivedAt=None) for name in ENDPOINTS}
 
     def refresh(self):
         # Three requests per cycle, shared by every browser; GET /api/realtime never calls TPBI.

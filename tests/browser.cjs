@@ -7,7 +7,8 @@ const fixture={version:1,source:'SYNTHETIC TEST DATA, NOT OFFICIAL',importedAt:'
 const browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH||'/usr/bin/chromium',args:['--no-sandbox']});
 try {
 const context=await browser.newContext();const page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
-await page.goto('http://127.0.0.1:8000');await page.waitForFunction(()=>document.querySelector('#dataStatus').textContent.includes('TPBI'));
+await page.goto('http://127.0.0.1:8000');await page.waitForFunction(()=>document.querySelector('#dataStatus').textContent.includes('Sursă declarată:'));
+await page.locator('.data-settings > summary').click();
 await page.locator('#transitFile').setInputFiles({name:'fixture.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(fixture))});
 await page.waitForFunction(()=>document.querySelector('#dataStatus').textContent.includes('SYNTHETIC'));assert.match(await page.locator('#dataStatus').innerText(),/SYNTHETIC/);assert.equal(await page.locator('#linesList button').count(),1);
 assert.equal(await page.locator('.leaflet-interactive').count(),3);assert.match(await page.locator('#directionText').innerText(),/A → B/);
@@ -20,8 +21,11 @@ console.log('PASS imported route rendering, actual return stops, dataset isolati
 if(process.env.COMMUNITY_URL){
  const a=await browser.newContext(),b=await browser.newContext();const p=await a.newPage(),q=await b.newPage();
  await Promise.all([p.goto(process.env.COMMUNITY_URL),q.goto(process.env.COMMUNITY_URL)]);await p.waitForFunction(()=>document.querySelector('#modeStatus').textContent.includes('comunitare'));await q.waitForFunction(()=>document.querySelector('#modeStatus').textContent.includes('comunitare'));
- await p.locator('#newReportButton').click();await p.locator('#reportForm button[type=submit]').click();await p.waitForSelector('.report');await q.reload();await q.waitForSelector('.report');assert.match(await q.locator('.report-origin').innerText(),/COMUNITATE/);assert.equal(await q.locator('.delete').count(),0);
- await q.locator('.report button[aria-pressed]').click();await q.waitForFunction(()=>document.querySelector('.report button[aria-pressed]').getAttribute('aria-pressed')==='true');await p.reload();await p.waitForSelector('.delete');assert.match(await p.locator('.report button[aria-pressed]').innerText(),/1/);await p.locator('.delete').click();await p.waitForFunction(()=>document.querySelectorAll('.report').length===0);
+ await p.locator('#newReportButton').click();await p.locator('#reportForm button[type=submit]').click();await p.waitForSelector('.delete');
+ const own=p.locator('.report').filter({has:p.locator('.delete')});const id=await own.getAttribute('data-report-id');
+ await q.reload();await q.waitForFunction(()=>document.querySelector('#modeStatus').textContent.includes('comunitare'));const peer=q.locator(`[data-report-id="${id}"]`);await peer.waitFor();assert.match(await peer.locator('.report-origin').innerText(),/COMUNITATE/);assert.equal(await peer.locator('.delete').count(),0);
+ await peer.locator('button[aria-pressed]').click();await q.waitForFunction(rid=>document.querySelector(`[data-report-id="${rid}"] button[aria-pressed]`)?.getAttribute('aria-pressed')==='true',id);
+ await p.reload();await p.waitForFunction(()=>document.querySelector('#modeStatus').textContent.includes('comunitare'));const original=p.locator(`[data-report-id="${id}"]`);await original.locator('.delete').waitFor();assert.match(await original.locator('button[aria-pressed]').innerText(),/1/);await original.locator('.delete').click();await original.waitFor({state:'detached'});
  console.log('PASS two independent sessions share reports, vote, enforce deletion ownership');await a.close();await b.close();
 }
 }finally{await browser.close()}

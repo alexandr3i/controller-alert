@@ -17,6 +17,7 @@
   function create(options) {
     const $ = id => document.getElementById(id);
     const layer = options.map ? L.layerGroup().addTo(options.map) : null;
+    const markers=new Map();
     let active=false, state=null, received=0, generation=0, busy=false, failed=false;
     const names={vehiclePositions:'Poziții vehicule',tripUpdates:'Actualizări curse',serviceAlerts:'Alerte transport'};
     const labels={fresh:'Recent',stale:'Date vechi',error:'Sursă indisponibilă',loading:'Se conectează',snapshot:'Captură · fără actualizare'};
@@ -24,10 +25,11 @@
     const age = (timestamp,now) => !timestamp ? 'moment necunoscut' : now < timestamp-120 ? 'timestamp în viitor' : `${Math.max(0,Math.floor((now-timestamp)/60))} min în urmă`;
     function message(target,text) {const p=document.createElement('p');p.textContent=text;target.append(p);}
     function render() {
-      layer?.clearLayers();
+
       const statuses=$('liveFeeds'), arrivals=$('liveArrivals'), alerts=$('liveAlerts');
       statuses.replaceChildren();arrivals.replaceChildren();alerts.replaceChildren();
       if(!active || !state?.enabled) {
+        layer?.clearLayers();markers.clear();
         $('liveSummary').textContent=failed ? 'Serviciul realtime nu răspunde. Nu sunt afișate poziții live.' : 'Realtime neconectat. Este necesar backend-ul PeLinie cu integrarea TPBI activată.';
         $('mapStatus').textContent='Hartă OpenStreetMap · fără vehicule live conectate.';
         message(arrivals,'Estimările de sosire vor apărea după conectarea serviciului realtime.');
@@ -47,7 +49,7 @@
         statuses.append(p);
       }
       const all=$('allVehicles').checked, known=new Map(options.getLines().map(l=>[l.id,l]));
-      let count=0,recent=0,oldHidden=0;
+      let count=0,recent=0,oldHidden=0;const seen=new Set();
       for(const item of feeds.vehiclePositions.items) {
         if(!known.has(item.routeId)||(!all&&item.routeId!==line.id))continue;
         const current=isFresh(feeds.vehiclePositions,item);
@@ -58,9 +60,13 @@
         const vehicleLine=known.get(item.routeId);
         const popup=document.createElement('div');
         popup.textContent=`Linia ${vehicleLine.number||item.routeId}${item.headsign ? ' → '+item.headsign : ''} · ${snapshot?'CAPTURĂ':current?'poziție recentă':'POZIȚIE VECHE'} · ${age(item.timestamp,now)} (${item.timestamp?time(item.timestamp):'fără oră'})`;
-        const marker=L.circleMarker([item.latitude,item.longitude],{radius:9,color:current?'#103f90':'#685e48',fillColor:current?'#4189ff':'#b4a17c',fillOpacity:0.95,weight:3});
-        marker.bindPopup(popup);marker.addTo(layer);
+        seen.add(item.id);
+        const style={radius:13,color:current?'#103f90':'#685e48',fillColor:current?'#4189ff':'#b4a17c',fillOpacity:0.95,weight:3};
+        let marker=markers.get(item.id);
+        if(!marker){marker=L.circleMarker([item.latitude,item.longitude],style).bindPopup(popup).bindTooltip(String(vehicleLine.number||item.routeId),{permanent:true,direction:'center',className:'vehicle-label'}).addTo(layer);markers.set(item.id,marker);}
+        else {marker.setLatLng([item.latitude,item.longitude]);marker.setStyle(style);marker.setPopupContent(popup);marker.setTooltipContent(String(vehicleLine.number||item.routeId));}
       }
+      for(const [id,marker] of markers)if(!seen.has(id)){layer.removeLayer(marker);markers.delete(id);}
       $('liveSummary').textContent=`${snapshot?'CAPTURĂ ÎNCĂRCATĂ — fără actualizare automată':failed?'Conexiune cu backend-ul pierdută': 'TPBI · interogare la '+state.pollSeconds+' secunde'} · ${count} vehicule afișate${snapshot?'':', '+recent+' cu poziție recentă'}${oldHidden ? ' · '+oldHidden+' poziții prea vechi sau fără timestamp ascunse' : ''}.`;
       $('mapStatus').textContent=`Hartă OpenStreetMap · ${all?'toate liniile din catalog':'linia '+(line.number||line.id)} · albastru: recent; ocru: captură/date vechi. Cercurile mici verzi sunt stații.`;
       if(!options.map) $('mapStatus').textContent='Harta nu a putut fi inițializată. Datele realtime sunt disponibile în panourile de mai jos.';

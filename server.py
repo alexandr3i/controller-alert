@@ -12,14 +12,14 @@ import secrets
 import sqlite3
 import threading
 import time
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, parse_qs
 
 ROOT = Path(__file__).parent
 TTL = 45 * 60 * 1000
 
 
 class Store:
-    def __init__(self, path, catalog):
+    def __init__(self, path, catalog, allow_catalog_update=False):
         self.catalog = catalog
         self.lines = {line['id']: line for line in catalog['lines']}
         self.lock = threading.Lock()
@@ -30,13 +30,33 @@ class Store:
             CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT);''')
         fingerprint = hashlib.sha256(json.dumps(catalog, sort_keys=True).encode()).hexdigest()
         previous = self.db.execute("SELECT value FROM metadata WHERE key='catalog'").fetchone()
-        if previous and previous[0] != fingerprint:
+        if previous and previous[0] != fingerprint and not allow_catalog_update:
             self.db.close()
             raise ValueError('Catalog changed; choose a new database path. Existing reports were preserved.')
-        self.db.execute("INSERT OR IGNORE INTO metadata VALUES ('catalog',?)", (fingerprint,))
+        self.db.execute("INSERT OR REPLACE INTO metadata VALUES ('catalog',?)", (fingerprint,))
+        if 'stop_id' not in {row[1] for row in self.db.execute('PRAGMA table_info(reports)')}:
+            self.db.execute('ALTER TABLE reports ADD COLUMN stop_id TEXT')
         self.db.commit()
         self.limits = {}
         self.salt = secrets.token_bytes(32)
+
+    def replace_catalog(self,catalog):
+        with self.lock:
+            self.db.execute("UPDATE metadata SET value=? WHERE key='catalog'",(hashlib.sha256(json.dumps(catalog,sort_keys=True).encode()).hexdigest(),))
+            self.db.commit()
+            self.catalog=catalog;self.lines={line['id']:line for line in catalog['lines']}
+
+    def location(self,line,direction,name,stop_id=None):
+        if not line:return None
+        index=1 if direction=='reverse' else 0
+        variants=[v for v in line.get('variants',[]) if v['direction']==line.get('directionIds',['0','1'])[index]] if index<len(line.get('directionIds',['0','1'])) else []
+        if not variants:variants=[dict(stops=line.get('reverseStops' if index else 'stops',[]),stopIds=line.get('reverseStopIds' if index else 'stopIds',[]),coordinates=line.get('reverseCoordinates' if index else 'coordinates',[]))]
+        for variant in variants:
+            for i,stop in enumerate(variant['stops']):
+                ids=variant.get('stopIds',[])
+                if stop==name and (not stop_id or i<len(ids) and ids[i]==stop_id):
+                    return dict(stopId=ids[i] if i<len(ids) else None,coordinates=variant.get('coordinates',[])[i] if i<len(variant.get('coordinates',[])) else None)
+        return None
 
     def run(self, owner, action, data):
         with self.lock:
@@ -47,12 +67,12 @@ class Store:
                 line = self.lines.get(data.get('line'))
                 direction = data.get('direction')
                 names = line.get('reverseStops', []) if line and direction == 'reverse' else line.get('stops', []) if line else []
-                if not line or direction not in ('forward', 'reverse') or data.get('stop') not in names:
+                if not line or direction not in ('forward', 'reverse') or self.location(line,direction,data.get('stop'),data.get('stopId')) is None:
                     raise ValueError('Linie, sens sau stație invalidă.')
                 count = self.db.execute('SELECT count(*) FROM reports WHERE owner=? AND created>?', (owner, now - 600000)).fetchone()[0]
                 if count >= 3:
                     raise ValueError('Maximum 3 raportări în 10 minute.')
-                self.db.execute('INSERT INTO reports VALUES (?,?,?,?,?,?)', (secrets.token_urlsafe(16), owner, data['line'], direction, data['stop'], now))
+                self.db.execute('INSERT INTO reports (id,owner,line,direction,stop,created,stop_id) VALUES (?,?,?,?,?,?,?)', (secrets.token_urlsafe(16), owner, data['line'], direction, data['stop'], now,data.get('stopId')))
             elif action in ('vote', 'delete'):
                 row = self.db.execute('SELECT owner FROM reports WHERE id=?', (data.get('id'),)).fetchone()
                 if not row:
@@ -69,9 +89,9 @@ class Store:
             self.db.commit()
             rows = self.db.execute('''SELECT r.id,r.owner,r.line,r.direction,r.stop,r.created,
                 (SELECT count(*) FROM votes WHERE report=r.id),
-                (SELECT count(*) FROM votes WHERE report=r.id AND voter=?)
+                (SELECT count(*) FROM votes WHERE report=r.id AND voter=?),r.stop_id
                 FROM reports r ORDER BY r.created DESC LIMIT 1000''', (owner,)).fetchall()
-            return [dict(id=r[0], canDelete=r[1] == owner, line=r[2], direction=r[3], stop=r[4], createdAt=r[5], confirmations=r[6], voted=bool(r[7]), shared=True) for r in rows]
+            return [dict(**self.location(self.lines.get(r[2]),r[3],r[4],r[8]),id=r[0], canDelete=r[1] == owner, line=r[2], direction=r[3], stop=r[4], createdAt=r[5], confirmations=r[6], voted=bool(r[7]), shared=True) for r in rows if self.location(self.lines.get(r[2]),r[3],r[4],r[8]) is not None]
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -92,7 +112,8 @@ class Handler(SimpleHTTPRequestHandler):
             secure = '; Secure' if self.server.secure else ''
             self.send_header('Set-Cookie', f'pelinie_session={self.session}; HttpOnly; SameSite=Strict; Path=/; Max-Age=86400{secure}')
         self.end_headers()
-        self.wfile.write(body)
+        try:self.wfile.write(body)
+        except (BrokenPipeError,ConnectionResetError):pass
 
     def identity(self):
         jar = cookies.SimpleCookie()
@@ -111,12 +132,28 @@ class Handler(SimpleHTTPRequestHandler):
         if path == '/api/realtime':
             realtime = getattr(self.server, 'realtime', None)
             return self.send_json(realtime.snapshot() if realtime else {'enabled': False})
+        if path == '/api/timetable':
+            with self.server.transit_lock:
+                table=self.server.timetable
+                if not table:return self.send_json({'enabled':False,'departures':[]})
+                query=parse_qs(urlsplit(self.path).query)
+                line=query.get('line',[''])[0];direction=query.get('direction',[''])[0];stop=query.get('stop',[''])[0]
+                if line not in self.server.store.lines or direction not in ('0','1') or len(stop)>150:
+                    return self.send_json({'error':'Selecție invalidă'},400)
+                state=self.server.realtime.snapshot() if self.server.realtime else None
+                try:return self.send_json(dict(enabled=True,**table.departures(line,direction,stop,realtime=state,date=query.get('date',[None])[0])))
+                except ValueError:return self.send_json({'error':'Dată invalidă'},400)
         if path == '/api/catalog':
             self.identity()
-            return self.send_json(self.server.store.catalog)
+            with self.server.transit_lock:
+                catalog=dict(self.server.store.catalog)
+                if catalog.get('revision') and self.headers.get('If-None-Match')=='"'+catalog['revision']+'"' and not (self.server.catalog_sync and self.server.catalog_sync.status.get('error')):
+                    self.send_response(304);self.end_headers();return
+                if self.server.catalog_sync:catalog['sync']=dict(self.server.catalog_sync.status)
+                return self.send_json(catalog)
         if path == '/api/reports':
             return self.send_json(self.server.store.run(self.identity(), 'list', {}))
-        allowed = path in ('/', '/index.html', '/app.js', '/transit.js', '/styles.css', '/live.js', '/data/catalog.json') or path.startswith('/vendor/leaflet/') and '..' not in path and '%' not in path
+        allowed = path in ('/', '/index.html', '/app.js', '/transit.js', '/styles.css', '/live.js', '/journey.js', '/data/catalog.json') or path.startswith('/vendor/leaflet/') and '..' not in path and '%' not in path
         if not allowed:
             return self.send_json({'error': 'Not found'}, 404)
         super().do_GET()
@@ -140,7 +177,7 @@ class Handler(SimpleHTTPRequestHandler):
             data = json.loads(self.rfile.read(size))
             if not isinstance(data, dict) or data.get('action') not in ('create', 'vote', 'delete'):
                 raise ValueError('Acțiune invalidă.')
-            if any(key in data and not isinstance(data[key], str) for key in ('id', 'line', 'direction', 'stop')):
+            if any(key in data and not isinstance(data[key], str) for key in ('id', 'line', 'direction', 'stop','stopId')):
                 raise ValueError('Câmp invalid.')
             # Address hashes retained only in RAM for one minute, never logged or persisted.
             store = self.server.store
@@ -171,6 +208,7 @@ def main():
     realtime_group.add_argument('--realtime-snapshots', type=Path, help='Offline replay directory; always labeled snapshot, never live')
     p.add_argument('--gtfs', type=Path, help='Original GTFS ZIP for trip directions and stop names')
     p.add_argument('--poll-seconds', type=int, default=30, help='Minimum 30; respect provider limits')
+    p.add_argument('--sync-gtfs',type=Path,help='Runtime directory for automatic six-hour GTFS refresh')
     args = p.parse_args()
     catalog = json.loads(args.data.read_text(encoding='utf-8'))
     if catalog.get('version') != 1 or not catalog.get('lines'):
@@ -178,7 +216,12 @@ def main():
     server = ThreadingHTTPServer((args.bind, args.port), Handler)
     server.secure = bool(args.public_origin and args.public_origin.startswith('https://'))
     server.public_origin = args.public_origin or f'http://{args.bind}:{args.port}'
-    server.store = Store(args.db, catalog)
+    server.transit_lock=threading.RLock()
+    server.store = Store(args.db, catalog,allow_catalog_update=bool(args.sync_gtfs))
+    server.timetable=None;server.catalog_sync=None
+    if args.gtfs:
+        from timetable import Timetable
+        server.timetable=Timetable(args.gtfs)
     server.realtime = None
     if args.realtime or args.realtime_snapshots:
         try:
@@ -187,12 +230,16 @@ def main():
             p.error('Install optional realtime dependencies: python3 -m pip install -r requirements.txt')
         server.realtime = Realtime(StaticIndex(args.gtfs), interval=args.poll_seconds, snapshots=args.realtime_snapshots)
         server.realtime.start()
+    if args.sync_gtfs:
+        from catalog_sync import CatalogSync
+        server.catalog_sync=CatalogSync(server,args.sync_gtfs);server.catalog_sync.start()
     print(f'PeLinie server on port {args.port}; reports expire after 45 minutes', flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        if server.catalog_sync:server.catalog_sync.close()
         if server.realtime:
             server.realtime.close()
         server.server_close()

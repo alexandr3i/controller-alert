@@ -6,7 +6,10 @@ import json
 from pathlib import Path
 import tempfile
 import urllib.request
-from import_gtfs import convert
+try:
+    from .import_gtfs import convert
+except ImportError:
+    from import_gtfs import convert
 
 SOURCE = 'https://gtfs.tpbi.ro/regional/BUCHAREST-REGION.zip'
 MAX_BYTES = 64 * 1024 * 1024
@@ -28,7 +31,7 @@ def prepare(directory, source_zip=None):
         if len(body) > MAX_BYTES:
             raise ValueError('GTFS ZIP exceeds 64 MB')
         digest = hashlib.sha256(body).hexdigest()
-        version = directory / digest
+        version = directory / (digest + '-v2')
         if version.exists():
             if not (version / 'gtfs.zip').is_file() or hashlib.sha256((version / 'gtfs.zip').read_bytes()).hexdigest() != digest:
                 raise ValueError('Existing runtime ZIP is invalid; no files were overwritten')
@@ -38,6 +41,7 @@ def prepare(directory, source_zip=None):
             return version
         target_zip.write_bytes(body)
         catalog = convert(target_zip, SOURCE + (' · fișier local' if source_zip else ''))
+        catalog['revision'] = digest + '-v2'
         content = json.dumps(catalog, ensure_ascii=False)
         if len(content.encode()) > 10 * 1024 * 1024:
             raise ValueError('Converted catalog exceeds 10 MB')
@@ -47,7 +51,14 @@ def prepare(directory, source_zip=None):
         completed.mkdir()
         target_zip.rename(completed / 'gtfs.zip')
         (staging / 'catalog.json').rename(completed / 'catalog.json')
-        completed.rename(version)
+        try:
+            completed.rename(version)
+        except OSError:
+            # A simultaneous worker may have published the same verified feed first.
+            if not (version/'gtfs.zip').is_file() or hashlib.sha256((version/'gtfs.zip').read_bytes()).hexdigest()!=digest:
+                raise
+            existing=json.loads((version/'catalog.json').read_text())
+            if existing.get('revision')!=catalog['revision']:raise
         return version
 
 

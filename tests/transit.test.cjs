@@ -8,3 +8,5 @@ test('malformed imports rejected',()=>{
   const d=data();mutate(d);assert.throws(()=>validate(d));
  }
 });
+
+test('route order is numeric with suffixes',()=>{const {compareLines}=require('../transit.js');assert.deepEqual(['104','41','1','10','441B','441','M2','M1'].map(id=>({id})).sort(compareLines).map(x=>x.id),['1','10','41','104','441','441B','M1','M2']);});

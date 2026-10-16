@@ -1,17 +1,17 @@
-# PeLinie — București · v0.3
+# PeLinie — București · v0.4
 
 Aplicație web pentru transportul public din București–Ilfov: hartă, poziții de vehicule, estimări, alerte de transport și raportări comunitare privind prezența unui control. Nu identifică și nu urmărește individual angajați. Experiment independent, neafiliat STB/TPBI; nu înlocuiește validarea titlului de călătorie.
 
 ## Ce include
 
-- Hartă Leaflet / OpenStreetMap și catalogul de **196 de linii de suprafață** convertit din ZIP-ul TPBI furnizat de utilizator. Cele cinci linii demonstrative sunt accesibile prin „Revino la exemple”. Catalogul inclus este o captură, nu o actualizare automată a traseelor pe GitHub Pages.
+- Hartă Leaflet / OpenStreetMap și catalogul de **201 linii (196 de suprafață și 5 de metrou)** convertit din ZIP-ul TPBI furnizat de utilizator. Cele cinci linii demonstrative sunt accesibile prin „Revino la exemple”. Catalogul inclus este o captură, nu o actualizare automată a traseelor pe GitHub Pages.
 - Integrare backend pentru cele trei endpoint-uri GTFS-Realtime TPBI: vehicule, actualizări de curse și alerte.
 - Vehicule pentru toate liniile din catalog sau numai pentru linia selectată. Popup-ul indică destinația, ora și vechimea poziției. Nu se solicită locația utilizatorului.
 - Estimări pentru linia/sensul selectate, cu stație, destinație, abatere și incertitudine când sursa le furnizează. Nu se calculează estimări fictive din orarul static. Stațiile omise sau fără date nu sunt prezentate ca sosiri estimate.
 - Alerte filtrate după câmpurile furnizate de TPBI (linie, operator, tip, stație și sens); intervalele de valabilitate sunt respectate. Textele sunt afișate ca text, fără interpretare HTML.
 - Raportări locale în modul static sau comune utilizatorilor aceluiași backend, cu confirmări, ștergerea raportărilor proprii și expirare după 45 de minute.
 
-Stațiile importate sunt unite pe hartă prin linii punctate; acestea **nu reprezintă geometria reală a străzilor**. Convertorul alege cursa cu cele mai multe stații pentru fiecare sens. Alte variante și calendarul de circulație nu sunt încă afișate. Metroul nu este inclus în catalogul interfeței. Datele și sursele sunt etichetate separat de exemple și de raportările neverificate ale utilizatorilor.
+Geometria traseelor este citită din `shapes.txt`; numai traseele fără geometrie sunt desenate punctat, prin unirea stațiilor. Catalogul include 460 de variante distincte după secvența stațiilor, selectabile în panoul liniei. Liniile sunt sortate numeric, inclusiv sufixe (1, 10, 41, 104, 441, 441B). Orarul respectă `calendar.txt`, excepțiile `calendar_dates.txt`, sensul, stația, ora locală și cursele de după miezul nopții. Metroul are orare și trasee; pozițiile live sunt afișate numai pentru vehiculele furnizate efectiv de TPBI. Datele și sursele sunt etichetate separat de exemple și de raportările neverificate ale utilizatorilor.
 
 ## Rulare statică — fără build sau instalări
 
@@ -36,7 +36,7 @@ python3 -m pip install -r requirements.txt
 sh tools/start_live.sh
 ```
 
-Scriptul descarcă ZIP-ul regional TPBI, îl validează, pregătește catalogul și indexul de curse/stații, apoi pornește interfața și API-ul la același server. Fișierele runtime sunt păstrate în `${TMPDIR:-/tmp}/pelinie-transit/<sha256>/`, în afara checkout-ului. Un ZIP identic reutilizează catalogul și baza de date existente; o versiune nouă primește propriul director și propria bază, fără ștergerea datelor anterioare. Catalogul static este descărcat la pornire, nu la fiecare ciclu realtime. Pentru actualizări de traseu, repornește serviciul; operatorul trebuie să verifice politica de retenție și curățarea versiunilor vechi.
+Scriptul descarcă ZIP-ul regional TPBI, îl validează, pregătește catalogul și indexul de curse/stații, apoi pornește interfața și API-ul la același server. Fișierele runtime sunt păstrate în `${TMPDIR:-/tmp}/pelinie-transit/<sha256>-v2/`, în afara checkout-ului. Un ZIP identic reutilizează catalogul; o versiune nouă primește propriul director. Raportările sunt în baza comună `reports-v2.sqlite3` din directorul runtime, fără ștergerea versiunilor anterioare. Catalogul static este verificat la pornire și apoi automat la șase ore. O versiune nouă este pregătită și validată înainte de schimbarea simultană a catalogului, indexului de curse și orarului; rapoartele încă relevante sunt păstrate. La eroare se păstrează versiunea validă anterioară și se publică starea sincronizării. Browserul verifică versiunea la cinci minute, folosind cereri condiționate pentru a evita descărcarea repetată a catalogului neschimbat. Operatorul trebuie să verifice retenția și curățarea versiunilor vechi.
 
 Poți folosi și un ZIP descărcat anterior:
 
@@ -53,6 +53,17 @@ python3 server.py --data data/catalog.json --gtfs /cale/BUCHAREST-REGION.zip --d
 ```
 
 `--gtfs` permite rezolvarea destinațiilor, sensurilor curselor și numelor de stații. Dacă lipsește, unele informații rămân indisponibile sau apar ca identificatori. `server.py` poate rula și fără `--realtime`, doar pentru raportări comune.
+
+
+## Sosiri, orar și raportări pe hartă
+
+Interfața v0.4 pune liniile într-un panou compact, lângă hartă. Selectează linia, sensul/varianta, apoi stația în „Sosiri în stație” sau apasă numele unei stații din traseu. API-ul `/api/timetable?line=…&direction=…&stop=…` combină orarul GTFS cu actualizările recente ale cursei și stației. Sunt afișate separat **LIVE**, **Planificat**, **Anulată** și **Nu oprește**. O estimare veche nu rămâne etichetată live. Datele sunt recitite la 30 de secunde; schimbarea stației în timpul unei cereri în curs declanșează cererea pentru ultima selecție.
+
+„Vezi orarul pe o zi” permite alegerea unei date și afișează toate plecările planificate pentru ziua calendaristică, inclusiv cursele din serviciul zilei anterioare care trec de miezul nopții. Data de serviciu a actualizării realtime trebuie să corespundă; nu aplicăm o anulare de azi cursei de mâine cu același identificator. Fără o estimare recentă, ora rămâne explicit planificată. SQLite indexează orarul la prima pornire, în afara checkout-ului.
+
+Vehiculele poartă numărul liniei și se actualizează pe hartă fără recrearea tuturor marcajelor. Implicit este afișată linia selectată; „toate liniile” arată întregul flux disponibil. Nu garantăm că TPBI emite poziția fiecărui vehicul sau că toate modurile de transport au acoperire live.
+
+Controlul raportat are un marcaj **!** la coordonata stației selectate, preluată din catalog și validată de server, nu la GPS-ul unei persoane. Popup-ul arată linia, vechimea, proveniența locală/comunitară și permite confirmarea. Marcajele sunt **neverificate**, expiră după 45 de minute și pot fi ascunse separat. În modul backend, o raportare creată într-un browser apare și pe harta celorlalți; ștergerea de către autor elimină marcajul la următoarea sincronizare (maximum aproximativ 30 secunde). Modificările proprii apar imediat. În modul GitHub Pages simplu, raportările rămân locale.
 
 ## Sursele și starea datelor
 
@@ -119,6 +130,7 @@ python3 -m unittest discover -s tests -v
 node --test tests/*.test.cjs
 node --check app.js
 node --check live.js
+node --check journey.js
 ```
 
 Teste browser opționale, cu serverul static pe 8000 și Chromium instalat:
@@ -129,6 +141,6 @@ NODE_PATH=/tmp/pelinie-browser/node_modules node tests/browser.cjs
 NODE_PATH=/tmp/pelinie-browser/node_modules node tests/realtime-browser.cjs
 ```
 
-Variabilele opționale `COMMUNITY_URL`, `SNAPSHOT_URL` și `LIVE_URL` activează verificări pe servere pornite separat. `CHROMIUM_PATH` poate selecta executabilul (implicit `/usr/bin/chromium`). Testele realtime verifică prospețimea, timestamp-urile absente/viitoare, cache-ul, erorile parțiale, recuperarea, feed-urile goale, validarea protobuf, alertele, estimările și separarea capturilor de live. Fluxul mock din browser este marcat ca test; verificarea cu `LIVE_URL` folosește sursa reală. Workflow-ul `Checks` rulează testele unitare la push și pull request.
+Variabilele opționale `COMMUNITY_URL`, `SNAPSHOT_URL` și `LIVE_URL` activează verificări pe servere pornite separat. `CHROMIUM_PATH` poate selecta executabilul (implicit `/usr/bin/chromium`). `APP_URL=http://127.0.0.1:8020 node tests/journey-browser.cjs` verifică ordinea numerică, orarul pe stații, variantele și raportările pe hartă între două sesiuni. Testele realtime verifică prospețimea, timestamp-urile absente/viitoare, cache-ul, erorile parțiale, recuperarea, feed-urile goale, validarea protobuf, alertele, estimările și separarea capturilor de live. Fluxul mock din browser este marcat ca test; verificarea cu `LIVE_URL` folosește sursa reală. Workflow-ul `Checks` rulează testele unitare la push și pull request.
 
 Aplicațiile native iOS/Android și PWA nu sunt încă implementate.

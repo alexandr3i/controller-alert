@@ -5,7 +5,7 @@
     if (!data || data.version !== 1 || typeof data.source !== 'string' || !data.source.trim() || data.source.length > 500 || !Number.isFinite(Date.parse(data.importedAt)) || !Array.isArray(data.lines) || !data.lines.length || data.lines.length > 1000) throw Error('Fișier de trasee invalid. Folosește convertorul GTFS.');
     const ids = new Set();
     for (const line of data.lines) {
-      if (!line || typeof line.id !== 'string' || !line.id || line.id.length > 150 || ids.has(line.id) || typeof line.label !== 'string' || line.label.length > 500 || !['tram','bus','trolley'].includes(line.type)) throw Error('Linie invalidă sau duplicată.');
+      if (!line || typeof line.id !== 'string' || !line.id || line.id.length > 150 || ids.has(line.id) || typeof line.label !== 'string' || line.label.length > 500 || !['tram','bus','trolley','metro'].includes(line.type)) throw Error('Linie invalidă sau duplicată.');
       if (line.number !== undefined && (typeof line.number !== 'string' || line.number.length > 50)) throw Error('Număr de linie invalid.');
       if (line.agencyId !== undefined && (typeof line.agencyId !== 'string' || line.agencyId.length > 150)) throw Error('Operator invalid.');
       if (line.routeType !== undefined && !Number.isInteger(line.routeType)) throw Error('Tip de rută invalid.');
@@ -18,10 +18,20 @@
         if (index === 1 && names === undefined && coords === undefined) continue;
         if (!Array.isArray(names) || !names.length || names.length > 500 || !Array.isArray(coords) || coords.length !== names.length || names.some(n=>typeof n!=='string'||!n||n.length>250) || coords.some(p=>!Array.isArray(p)||p.length!==2||!Number.isFinite(p[0])||!Number.isFinite(p[1])||p[0]<43||p[0]>46||p[1]<24||p[1]>28)) throw Error('Stații sau coordonate invalide pentru zona București–Ilfov.');
       }
-      line.typeName = {tram:'Tramvai',bus:'Autobuz',trolley:'Troleibuz'}[line.type];
+      function points(value) {return Array.isArray(value)&&value.length<=20000&&value.every(p=>Array.isArray(p)&&p.length===2&&p.every(Number.isFinite)&&p[0]>=43&&p[0]<=46&&p[1]>=24&&p[1]<=28);}
+      for (const key of ['geometry','reverseGeometry']) if(line[key]!==undefined&&!points(line[key]))throw Error('Geometrie invalidă.');
+      if(line.variants!==undefined){
+        if(!Array.isArray(line.variants)||line.variants.length>128)throw Error('Variante invalide.');
+        const variants=new Set();
+        for(const v of line.variants){
+          if(!v||typeof v.id!=='string'||variants.has(v.id)||!['0','1'].includes(v.direction)||typeof v.headsign!=='string'||!Array.isArray(v.stops)||!v.stops.length||v.stops.length>500||v.stops.some(s=>typeof s!=='string'||s.length>250)||!Array.isArray(v.stopIds)||v.stopIds.length!==v.stops.length||v.stopIds.some(s=>typeof s!=='string'||s.length>150)||!points(v.coordinates)||v.coordinates.length!==v.stops.length||v.geometry!==undefined&&!points(v.geometry))throw Error('Variantă de traseu invalidă.');
+          variants.add(v.id);
+        }
+      }
+      line.typeName = {tram:'Tramvai',bus:'Autobuz',trolley:'Troleibuz',metro:'Metrou'}[line.type];
     }
     return data;
   }
-  root.Transit = {validate};
+  root.Transit = {validate,compareLines:(a,b)=>String(a.number||a.id).localeCompare(String(b.number||b.id),'ro',{numeric:true,sensitivity:'base'})||a.id.localeCompare(b.id)};
   if (typeof module !== 'undefined') module.exports = root.Transit;
 })(typeof window !== 'undefined' ? window : globalThis);

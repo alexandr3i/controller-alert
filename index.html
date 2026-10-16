@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0b1221" />
   <meta name="description" content="PeLinie — prototip demonstrativ pentru raportări comunitare pe liniile de transport public din București." />
-  <title>PeLinie — Prototip STB</title>
+  <title>PeLinie — Transport București live</title>
   <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -30,42 +30,40 @@
         <span class="brandmark"><svg width="25" height="25"><use href="#i-route"/></svg></span>
         <span><span class="brandname">Pe<span>Linie</span></span><span class="brandsub">București, în mișcare.</span></span>
       </a>
-      <div class="headright"><span class="top-pill"><span class="dot"></span> Prototip v0.3</span><button class="about-link" id="aboutButton" type="button">Despre proiect ↗</button></div>
+      <div class="headright"><span class="top-pill"><span class="dot"></span> Beta v0.4</span><button class="about-link" id="aboutButton" type="button">Despre proiect ↗</button></div>
     </header>
     <main id="top">
-      <section class="hero" aria-labelledby="hero-title">
-        <div class="hero-copy">
-          <span class="eyebrow"><span class="dot" style="background:var(--mint)"></span> Comunitatea din transport</span>
-          <h1 id="hero-title">Orașul se mișcă.<br />Tu ești pe linie.</h1>
-          <p>Explorează harta Bucureștiului, importă trasee și testează raportări locale pe liniile de transport.</p>
-        </div>
-        <svg class="hero-art" viewBox="0 0 450 245" aria-hidden="true">
-          <path class="art-route alt" d="M-14 45 92 110 182 28 260 98 335 16 461 100"/>
-          <path class="art-route" d="M5 218 105 128 180 153 254 73 333 140 472 38"/>
-          <circle class="art-stop" cx="105" cy="128" r="12"/><circle class="art-stop" cx="180" cy="153" r="12"/><circle class="art-stop" cx="254" cy="73" r="12"/><circle class="art-stop" cx="333" cy="140" r="12"/>
-          <circle class="art-stop small" cx="92" cy="110" r="7"/><circle class="art-stop small" cx="260" cy="98" r="7"/>
-        </svg>
-      </section>
+      <section class="journey-heading"><span class="eyebrow">BUCUREȘTI · ILFOV</span><h1>Următoarea ta călătorie, pe hartă.</h1><p>Trasee, sosiri și vehicule TPBI. Alege o linie, apoi stația în care aștepți.</p></section>
+      <div class="transport-grid">
       <section class="panel map-panel" aria-labelledby="mapTitle">
         <div class="panel-padding">
           <h2 id="mapTitle">Harta Bucureștiului</h2>
           <p id="mapStatus" role="status">Hartă OpenStreetMap · fără vehicule live conectate.</p>
           <p id="liveSummary" role="status">Se verifică disponibilitatea datelor realtime.</p>
-          <label class="vehicle-toggle"><input id="allVehicles" type="checkbox" checked /> Arată vehiculele de pe toate liniile din catalog</label>
+          <label class="vehicle-toggle"><input id="allVehicles" type="checkbox" /> Arată vehiculele de pe toate liniile din catalog</label>
+          <label class="vehicle-toggle"><input id="showReports" type="checkbox" checked /> Arată controalele raportate · neverificate</label>
           <div id="map" aria-label="Hartă interactivă București"></div>
           <div id="liveFeeds" class="live-feed-grid" aria-live="polite"></div>
-          <div class="live-details">
+          <section id="timetableSection" class="timetable-panel" aria-labelledby="timetableTitle">
+            <div class="section-heading"><div><span class="section-meta">CÂND VINE?</span><h3 id="timetableTitle">Sosiri în stație</h3></div><span class="live-badge">GTFS + REALTIME</span></div>
+            <label for="journeyStop">Stația selectată</label><select id="journeyStop" aria-label="Stație pentru sosiri"></select>
+            <div class="schedule-controls"><label><input id="fullSchedule" type="checkbox" /> Vezi orarul pe o zi</label><input id="scheduleDate" type="date" aria-label="Data orarului" /></div>
+            <p id="timetableStatus" role="status"></p><div id="timetableList" aria-live="polite"></div>
+          </section>
+          <details class="transport-details"><summary>Alerte și actualizări TPBI</summary><div class="live-details">
             <section aria-labelledby="arrivalsTitle"><h3 id="arrivalsTitle">Estimări și actualizări de curse</h3><p class="small-note">Pentru linia selectată · filtrare pe sens când este identificat · orele sunt în fusul Bucureștiului.</p><div id="liveArrivals"></div></section>
             <section aria-labelledby="alertsTitle"><h3 id="alertsTitle">Alerte TPBI pentru linia selectată</h3><div id="liveAlerts"></div></section>
           </div>
+          </details>
           <p id="tileStatus" role="status"></p>
-          <div class="data-controls">
+          <details class="data-settings"><summary>Surse și import de date</summary><div class="data-controls">
             <label class="secondary" for="transitFile">Importă trasee GTFS convertite (JSON)</label>
             <input id="transitFile" type="file" accept="application/json,.json" />
             <button id="demoDataButton" class="secondary" type="button">Revino la exemple</button>
           </div>
           <p id="dataStatus" role="status">Trasee demonstrative. Nu sunt desenate pe hartă deoarece nu au coordonate verificate.</p>
           <p class="small-note">Import local, fără încărcare pe un server. Conversie: tools/import_gtfs.py. Harta necesită internet; traseele importate sunt separate de pozițiile vehiculelor. Nu colectăm locația ta.</p>
+          </details>
         </div>
       </section>
       <div class="layout">
@@ -78,11 +76,12 @@
             <button class="chip" type="button" data-filter="bus" aria-pressed="false">Autobuz</button>
             <button class="chip" type="button" data-filter="trolley" aria-pressed="false">Troleibuz</button>
           </div>
+          <button class="chip" type="button" data-filter="metro" aria-pressed="false">Metrou</button>
           <div id="linesList" class="lines-list" aria-live="polite"></div>
           <div class="side-foot"><svg width="16" height="16" aria-hidden="true"><use href="#i-info"/></svg><span>Exemple demonstrative sau trasee importate de tine. Sursa și data importului apar deasupra hărții.</span></div>
         </aside>
         <div class="workarea">
-          <div class="area-title"><div><span class="section-meta">Panoul liniei</span><h2>Ce se întâmplă pe traseu?</h2></div><span class="small-note">Actualizare locală în browser</span></div>
+          <div class="area-title"><div><span class="section-meta">Panoul liniei</span><h2>Ce se întâmplă pe traseu?</h2></div><span class="small-note">TPBI · date și comunitate</span></div>
           <section class="overview" aria-label="Statistici pentru linia selectată">
             <div class="stat"><div class="stat-top">Linie selectată <svg width="17" height="17" aria-hidden="true"><use href="#i-route"/></svg></div><div class="stat-number mint" id="statLine">41</div><div class="stat-sub" id="statType">Tramvai</div></div>
             <div class="stat"><div class="stat-top">Observații <svg width="17" height="17" aria-hidden="true"><use href="#i-alert"/></svg></div><div class="stat-number amber" id="statReports">0</div><div class="stat-sub">pe acest sens · salvate local</div></div>
@@ -93,6 +92,7 @@
               <div class="panel-padding">
                 <div class="route-intro"><div class="route-badge tram" id="routeBadge">41</div><div><h3 id="routeTitle">Linia 41</h3><p id="routeSubtitle">Tramvai · traseu demonstrativ</p></div></div>
                 <div class="direction-row"><div class="direction-text"><small>Sens selectat</small><strong id="directionText">Ghencea → Piața Presei</strong></div><button type="button" class="swap-btn" id="reverseButton" aria-label="Schimbă sensul de deplasare" title="Schimbă sensul"><svg width="19" height="19"><use href="#i-switch"/></svg></button></div>
+                <label class="variant-label" for="variantSelect">Varianta traseului</label><select id="variantSelect" aria-label="Varianta traseului"></select>
                 <div class="route-caption"><h4>Stații pe traseu</h4><span>Alege „+” pentru o raportare</span></div>
                 <div class="stops" id="stopsList"></div>
                 <div class="route-footer">Aceasta este o schemă ilustrativă, nu o hartă GPS. Nu sunt afișate vehicule sau persoane în timp real.</div>
@@ -104,8 +104,9 @@
               <div class="feed-foot">Raportările adăugate de tine sunt salvate doar în acest browser. Nimeni altcineva nu le vede.</div>
             </section>
           </div>
-          <section class="cta" aria-label="Raportează o observație"><div><h3>Ai observat ceva pe traseu?</h3><p>Testează fluxul de raportare. Nu introduce date personale sau detalii care identifică angajați.</p></div><button type="button" class="primary" id="newReportButton"><svg width="17" height="17" aria-hidden="true"><use href="#i-plus"/></svg> Adaugă raportare</button></section>
+          <section class="cta" aria-label="Raportează o observație"><div><h3>Ai observat ceva pe traseu?</h3><p>Raportează un control la o stație. Sesizarea este neverificată și expiră după 45 de minute. Fără date personale.</p></div><button type="button" class="primary" id="newReportButton"><svg width="17" height="17" aria-hidden="true"><use href="#i-plus"/></svg> Adaugă raportare</button></section>
         </div>
+      </div>
       </div>
     </main>
     <footer class="footer"><span>PeLinie · experiment independent. Neafiliat STB sau TPBI. Nu înlocuiește validarea titlului de călătorie.</span><button type="button" id="resetButton">Șterge datele mele de test</button></footer>
@@ -118,7 +119,7 @@
   <dialog id="reportDialog" aria-labelledby="modalTitle">
     <div class="modal-top"><div><span class="section-meta" style="color:var(--mint)">Raportare nouă · test</span><h2 id="modalTitle">Adaugă o observație</h2></div><button type="button" class="modal-close" id="closeModalButton" aria-label="Închide"><svg width="17" height="17"><use href="#i-x"/></svg></button></div>
     <form class="modal-form" id="reportForm">
-      <div class="field"><label for="formLine">Linia STB</label><select id="formLine" name="line" required></select></div>
+      <div class="field"><label for="formLine">Linia de transport</label><select id="formLine" name="line" required></select></div>
       <div class="field"><label for="formDirection">Sensul de mers</label><select id="formDirection" name="direction" required><option value="forward">Sens tur</option><option value="reverse">Sens retur</option></select></div>
       <div class="field"><label for="formStop">Stația aproximativă</label><select id="formStop" name="stop" required></select></div>
       <div class="modal-help">Raportarea este salvată <strong>doar pe dispozitivul tău</strong> și expiră după 45 de minute. Nu colectăm GPS, fotografii sau identitatea persoanelor.</div>
@@ -129,6 +130,7 @@
   <script src="vendor/leaflet/leaflet.js"></script>
   <script src="transit.js"></script>
   <script src="live.js"></script>
+  <script src="journey.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
